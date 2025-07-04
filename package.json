@@ -48,6 +48,7 @@
   "devDependencies": {
     "@types/node": "^20.11.19",
     "@types/vscode": "^1.85.0",
+    "@types/ignore": "^5.2.2",
     "typescript": "^5.2.2"
   },
   "dependencies": {
