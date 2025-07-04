@@ -1,0 +1,56 @@
+{
+  "name": "context-bundler",
+  "displayName": "Context Bundler",
+  "description": "Easily bundle files for LLM context windows.",
+  "version": "0.0.1",
+  "publisher": "codex",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": ["Other"],
+  "activationEvents": ["*"],
+  "main": "./out/extension.js",
+  "contributes": {
+    "views": {
+      "explorer": [
+        {
+          "id": "contextBundlerView",
+          "name": "Context Bundler",
+          "type": "tree"
+        }
+      ]
+    },
+    "commands": [
+      {
+        "command": "context-bundler.copyToClipboard",
+        "title": "Copy Selected Files to Clipboard",
+        "icon": "$(clippy)"
+      },
+      {
+        "command": "context-bundler.toggleNode",
+        "title": "Toggle Node"
+      }
+    ],
+    "menus": {
+      "view/title": [
+        {
+          "command": "context-bundler.copyToClipboard",
+          "when": "view == contextBundlerView",
+          "group": "navigation"
+        }
+      ]
+    }
+  },
+  "scripts": {
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.19",
+    "@types/vscode": "^1.85.0",
+    "typescript": "^5.2.2"
+  },
+  "dependencies": {
+    "ignore": "^5.3.1"
+  }
+}
