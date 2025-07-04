@@ -1,0 +1,1 @@
+VS code extension that helps you copy and paste your codebase into an LLM’s context. 
