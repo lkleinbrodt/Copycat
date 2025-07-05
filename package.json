@@ -51,6 +51,7 @@
     "test": "node ./out/test/runTest"
   },
   "devDependencies": {
+    "@types/ignore": "^5.2.2",
     "@types/mocha": "^10.0.10",
     "@types/node": "^20.11.19",
     "@types/vscode": "^1.85.0",

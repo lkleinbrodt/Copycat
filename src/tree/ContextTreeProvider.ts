@@ -13,17 +13,20 @@ export class ContextTreeProvider implements vscode.TreeDataProvider<ContextNode>
     readonly onSelectionChange: vscode.Event<number> = this._onSelectionChange.event;
 
     private allNodes: Map<string, ContextNode> = new Map();
+    private selectionCache: Map<string, SelectionState> = new Map();
     private ignoreManager?: IgnoreManager;
     private estimator = new TokenEstimator();
 
     constructor(private workspaceRoot: string | undefined) {
         if (workspaceRoot) {
             this.ignoreManager = new IgnoreManager(workspaceRoot);
-            this.ignoreManager.loadRules();
         }
     }
 
     refresh(): void {
+        for (const [p, node] of this.allNodes) {
+            this.selectionCache.set(p, node.selectionState);
+        }
         this.allNodes.clear();
         this._onDidChangeTreeData.fire();
     }
@@ -34,7 +37,7 @@ export class ContextTreeProvider implements vscode.TreeDataProvider<ContextNode>
                 element.iconPath = new vscode.ThemeIcon('check');
                 break;
             case 'indeterminate':
-                element.iconPath = new vscode.ThemeIcon('pass');
+                element.iconPath = new vscode.ThemeIcon('dash');
                 break;
             default:
                 element.iconPath = new vscode.ThemeIcon('circle-large-outline');
@@ -77,18 +80,25 @@ export class ContextTreeProvider implements vscode.TreeDataProvider<ContextNode>
             if (this.ignoreManager && this.ignoreManager.isIgnored(uri.fsPath)) {
                 continue;
             }
-            const node = await this.createNode(uri, type);
-            parent.children.push(node);
+            const node = await this.createNode(uri, type, parent);
             nodes.push(node);
         }
         return nodes;
     }
 
-    private async createNode(uri: vscode.Uri, fileTypeOrStat: vscode.FileType | vscode.FileStat): Promise<ContextNode> {
+    private async createNode(uri: vscode.Uri, fileTypeOrStat: vscode.FileType | vscode.FileStat, parent?: ContextNode): Promise<ContextNode> {
         const fileType = (fileTypeOrStat as vscode.FileStat).type !== undefined ? (fileTypeOrStat as vscode.FileStat).type : fileTypeOrStat as vscode.FileType;
         const label = path.basename(uri.fsPath);
         const node = new ContextNode(uri, label, fileType);
         this.allNodes.set(uri.fsPath, node);
+        parent?.children.push(node);
+
+        const cached = this.selectionCache.get(uri.fsPath);
+        if (cached) {
+            node.selectionState = cached;
+        } else if (parent && parent.selectionState !== 'indeterminate') {
+            node.selectionState = parent.selectionState;
+        }
 
         if (fileType === vscode.FileType.File) {
             try {
@@ -111,6 +121,7 @@ export class ContextTreeProvider implements vscode.TreeDataProvider<ContextNode>
 
     private setNodeState(node: ContextNode, state: SelectionState): void {
         node.selectionState = state;
+        this.selectionCache.set(node.resourceUri.fsPath, state);
         if (state !== 'indeterminate' && node.fileType === vscode.FileType.Directory) {
             node.children.forEach(child => this.setNodeState(child, state));
         }
@@ -129,6 +140,7 @@ export class ContextTreeProvider implements vscode.TreeDataProvider<ContextNode>
         } else {
             parent.selectionState = 'indeterminate';
         }
+        this.selectionCache.set(parent.resourceUri.fsPath, parent.selectionState);
         this._onDidChangeTreeData.fire(parent);
         this.propagateStateUp(parent);
     }
