@@ -37,9 +37,24 @@ export function activate(context: vscode.ExtensionContext) {
     });
 
     const watcher = rootPath ? vscode.workspace.createFileSystemWatcher(new vscode.RelativePattern(rootPath, '**/*')) : undefined;
-    watcher?.onDidCreate(() => treeProvider.refresh());
-    watcher?.onDidDelete(() => treeProvider.refresh());
-    watcher?.onDidChange(() => treeProvider.refresh());
+    watcher?.onDidCreate(uri => {
+        if (uri.path.endsWith('.gitignore') || uri.path.endsWith('.contextignore')) {
+            treeProvider.reloadIgnoreRules();
+        }
+        treeProvider.onFileChange(uri);
+    });
+    watcher?.onDidDelete(uri => {
+        if (uri.path.endsWith('.gitignore') || uri.path.endsWith('.contextignore')) {
+            treeProvider.reloadIgnoreRules();
+        }
+        treeProvider.onFileDelete(uri);
+    });
+    watcher?.onDidChange(uri => {
+        if (uri.path.endsWith('.gitignore') || uri.path.endsWith('.contextignore')) {
+            treeProvider.reloadIgnoreRules();
+        }
+        treeProvider.onFileChange(uri);
+    });
 
     if (watcher) context.subscriptions.push(watcher);
     context.subscriptions.push(copyCmd, toggleCmd, treeView);

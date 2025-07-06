@@ -14,6 +14,7 @@ export class ContextTreeProvider implements vscode.TreeDataProvider<ContextNode>
 
     private allNodes: Map<string, ContextNode> = new Map();
     private selectionCache: Map<string, SelectionState> = new Map();
+    private tokenCache: Map<string, { mtime: number; tokens: number }> = new Map();
     private ignoreManager?: IgnoreManager;
     private estimator = new TokenEstimator();
 
@@ -21,6 +22,21 @@ export class ContextTreeProvider implements vscode.TreeDataProvider<ContextNode>
         if (workspaceRoot) {
             this.ignoreManager = new IgnoreManager(workspaceRoot);
         }
+    }
+
+    reloadIgnoreRules() {
+        this.ignoreManager?.reloadRules();
+    }
+
+    onFileChange(file: vscode.Uri) {
+        this.tokenCache.delete(file.fsPath);
+        this.refresh();
+    }
+
+    onFileDelete(file: vscode.Uri) {
+        this.tokenCache.delete(file.fsPath);
+        this.selectionCache.delete(file.fsPath);
+        this.refresh();
     }
 
     refresh(): void {
@@ -63,11 +79,15 @@ export class ContextTreeProvider implements vscode.TreeDataProvider<ContextNode>
             const rootUri = vscode.Uri.file(this.workspaceRoot);
             const rootStat = await vscode.workspace.fs.stat(rootUri);
             const rootNode = await this.createNode(rootUri, rootStat);
+            await this.getDirectoryChildren(rootNode);
             return [rootNode];
         }
 
         if (element.fileType === vscode.FileType.Directory) {
-            return this.getDirectoryChildren(element);
+            if (element.children.length === 0) {
+                return this.getDirectoryChildren(element);
+            }
+            return element.children;
         }
         return [];
     }
@@ -83,6 +103,7 @@ export class ContextTreeProvider implements vscode.TreeDataProvider<ContextNode>
             const node = await this.createNode(uri, type, parent);
             nodes.push(node);
         }
+        parent.tokenCount = nodes.reduce((sum, n) => sum + n.tokenCount, 0);
         return nodes;
     }
 
@@ -102,8 +123,15 @@ export class ContextTreeProvider implements vscode.TreeDataProvider<ContextNode>
 
         if (fileType === vscode.FileType.File) {
             try {
-                const content = await fs.readFile(uri.fsPath, 'utf-8');
-                node.tokenCount = this.estimator.estimateTokens(content);
+                const stat = await vscode.workspace.fs.stat(uri);
+                const cachedToken = this.tokenCache.get(uri.fsPath);
+                if (cachedToken && cachedToken.mtime === stat.mtime) {
+                    node.tokenCount = cachedToken.tokens;
+                } else {
+                    const content = await fs.readFile(uri.fsPath, 'utf-8');
+                    node.tokenCount = this.estimator.estimateTokens(content);
+                    this.tokenCache.set(uri.fsPath, { mtime: stat.mtime, tokens: node.tokenCount });
+                }
             } catch {
                 node.tokenCount = 0;
             }

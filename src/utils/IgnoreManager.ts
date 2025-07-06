@@ -27,6 +27,11 @@ export class IgnoreManager {
         }
     }
 
+    reloadRules() {
+        this.ig = ignore();
+        this.loadRulesSync();
+    }
+
     isIgnored(filePath: string): boolean {
         const relativePath = path.relative(this.workspaceRoot, filePath);
         return this.ig.ignores(relativePath);
