@@ -14,4 +14,9 @@ Context Bundler is a simple VS Code extension for packaging selected files into 
 4. Click the clipboard icon or run the `Context Bundler: Copy Selected Files to Clipboard` command.
 5. Paste the result into your LLM conversation.
 
-The extension respects `.gitignore` rules automatically and only reads files inside your workspace.
+The extension respects `.gitignore` rules automatically and also loads patterns from an optional `.contextignore` file at the workspace root. Use `.contextignore` to exclude files that are not tracked by git but should still be ignored by the bundler.
+
+## TODO
+
+- Use an actual tokenizer for more accurate token counts.
+- Add unit tests for the utility classes.
