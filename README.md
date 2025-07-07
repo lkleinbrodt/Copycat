@@ -1,4 +1,4 @@
-![CopyCat Logo](images/icon mini.png)
+![CopyCat Logo](images/icon-mini.png)
 
 # CopyCat
 
