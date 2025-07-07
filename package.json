@@ -22,6 +22,11 @@
           "type": "boolean",
           "default": false,
           "description": "Whether to show ignored files and folders in the tree view. When enabled, ignored items will be displayed but greyed out."
+        },
+        "contextBundler.systemPrompt": {
+          "type": "string",
+          "default": "",
+          "description": "A system prompt prepended to every request when using Copy to Clipboard with Prompt. Helps guide the LLM on how to interpret the request."
         }
       }
     },
@@ -37,8 +42,13 @@
     "commands": [
       {
         "command": "context-bundler.copyToClipboard",
-        "title": "Copy Selected Files to Clipboard",
+        "title": "CopyCat: Copy Selected Files to Clipboard",
         "icon": "$(clippy)"
+      },
+      {
+        "command": "context-bundler.copyToClipboardWithPrompt",
+        "title": "CopyCat: Copy Selected Files to Clipboard with Prompt",
+        "icon": "$(comment)"
       },
       {
         "command": "context-bundler.toggleNode",
@@ -53,6 +63,11 @@
       "view/title": [
         {
           "command": "context-bundler.copyToClipboard",
+          "when": "view == contextBundlerView",
+          "group": "navigation"
+        },
+        {
+          "command": "context-bundler.copyToClipboardWithPrompt",
           "when": "view == contextBundlerView",
           "group": "navigation"
         }

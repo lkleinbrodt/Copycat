@@ -2,6 +2,9 @@ import * as vscode from "vscode";
 
 import { ClipboardHandler } from "./utils/ClipboardHandler";
 import { ContextTreeProvider } from "./tree/ContextTreeProvider";
+import { IgnoreManager } from "./utils/IgnoreManager";
+import { TokenFormatter } from "./utils/TokenFormatter";
+import { TokenManager } from "./utils/TokenManager";
 
 export function activate(context: vscode.ExtensionContext) {
   console.log('Extension "context-bundler" is now active!');
@@ -12,12 +15,26 @@ export function activate(context: vscode.ExtensionContext) {
       ? vscode.workspace.workspaceFolders[0].uri.fsPath
       : undefined;
 
-  const treeProvider = new ContextTreeProvider(rootPath);
+  // Initialize TokenManager if we have a workspace
+  let tokenManager: TokenManager | undefined;
+  if (rootPath) {
+    const ignoreManager = new IgnoreManager(rootPath);
+    tokenManager = new TokenManager(
+      rootPath,
+      ignoreManager,
+      context.workspaceState
+    );
+
+    // Start background indexing
+    tokenManager.startBackgroundIndexing();
+  }
+
+  const treeProvider = new ContextTreeProvider(rootPath, tokenManager);
   const treeView = vscode.window.createTreeView("contextBundlerView", {
     treeDataProvider: treeProvider,
   });
   treeProvider.onSelectionChange((total) => {
-    treeView.description = `~${total} tokens selected`;
+    treeView.description = `~${TokenFormatter.formatTokens(total)} selected`;
   });
 
   const toggleCmd = vscode.commands.registerCommand(
@@ -47,21 +64,91 @@ export function activate(context: vscode.ExtensionContext) {
     }
   );
 
+  const copyWithPromptCmd = vscode.commands.registerCommand(
+    "context-bundler.copyToClipboardWithPrompt",
+    async () => {
+      if (!clipboardHandler) {
+        vscode.window.showWarningMessage("No workspace opened.");
+        return;
+      }
+      const selected = treeProvider.getSelectedNodes();
+      if (selected.length === 0) {
+        vscode.window.showWarningMessage("No files selected.");
+        return;
+      }
+
+      // Prompt the user for input
+      const prompt = await vscode.window.showInputBox({
+        prompt: "Enter your request or feature description",
+        placeHolder: "e.g., Add a new feature to handle user authentication",
+        value: "",
+        validateInput: (value) => {
+          if (!value || value.trim().length === 0) {
+            return "Please enter a request or description";
+          }
+          return null;
+        },
+      });
+
+      // Get system prompt from settings
+      const config = vscode.workspace.getConfiguration("contextBundler");
+      const systemPrompt = config.get<string>("systemPrompt", "");
+
+      if (prompt) {
+        clipboardHandler.bundleAndCopyToClipboard(
+          selected,
+          prompt,
+          systemPrompt
+        );
+      }
+    }
+  );
+
   const debugCmd = vscode.commands.registerCommand(
     "context-bundler.debugSettings",
     () => {
       const config = vscode.workspace.getConfiguration("contextBundler");
       const showIgnoredNodes = config.get("showIgnoredNodes", false);
-      vscode.window.showInformationMessage(
-        `Context Bundler Settings:\n- Show Ignored Nodes: ${showIgnoredNodes}\n- Workspace Root: ${
-          rootPath || "None"
-        }`
-      );
+
+      let message = `Context Bundler Settings:\n- Show Ignored Nodes: ${showIgnoredNodes}\n- Workspace Root: ${
+        rootPath || "None"
+      }`;
+
+      if (tokenManager) {
+        const stats = tokenManager.getCacheStats();
+        message += `\n\nToken Manager Stats:\n- Total Files: ${stats.total}\n- Indexed: ${stats.indexed}\n- Pending: ${stats.pending}`;
+
+        // Show some example token formatting
+        message += `\n\nToken Formatting Examples:\n- 847 → ${TokenFormatter.formatTokens(
+          847
+        )}\n- 1500 → ${TokenFormatter.formatTokens(
+          1500
+        )}\n- 601409 → ${TokenFormatter.formatTokens(601409)}`;
+      }
+
+      vscode.window.showInformationMessage(message);
       console.log("Context Bundler Debug Info:", {
         showIgnoredNodes,
         workspaceRoot: rootPath,
         hasIgnoreManager: !!treeProvider["ignoreManager"],
+        tokenManagerStats: tokenManager?.getCacheStats(),
       });
+    }
+  );
+
+  const clearCacheCmd = vscode.commands.registerCommand(
+    "context-bundler.clearCache",
+    async () => {
+      if (!tokenManager) {
+        vscode.window.showWarningMessage("No workspace opened.");
+        return;
+      }
+
+      tokenManager.clearCache();
+      await tokenManager.startBackgroundIndexing();
+      vscode.window.showInformationMessage(
+        "Token cache cleared and re-indexing started."
+      );
     }
   );
 
@@ -70,9 +157,31 @@ export function activate(context: vscode.ExtensionContext) {
         new vscode.RelativePattern(rootPath, "**/*")
       )
     : undefined;
-  watcher?.onDidCreate(() => treeProvider.refresh());
-  watcher?.onDidDelete(() => treeProvider.refresh());
-  watcher?.onDidChange(() => treeProvider.refresh());
+
+  // Enhanced file watchers that update TokenManager
+  watcher?.onDidCreate((uri) => {
+    if (tokenManager) {
+      tokenManager.onFileCreated(uri.fsPath);
+    } else {
+      treeProvider.refresh();
+    }
+  });
+
+  watcher?.onDidDelete((uri) => {
+    if (tokenManager) {
+      tokenManager.onFileDeleted(uri.fsPath);
+    } else {
+      treeProvider.refresh();
+    }
+  });
+
+  watcher?.onDidChange((uri) => {
+    if (tokenManager) {
+      tokenManager.onFileChanged(uri.fsPath);
+    } else {
+      treeProvider.refresh();
+    }
+  });
 
   // Listen for configuration changes to refresh the tree
   const configChangeListener = vscode.workspace.onDidChangeConfiguration(
@@ -88,11 +197,15 @@ export function activate(context: vscode.ExtensionContext) {
   }
   context.subscriptions.push(
     copyCmd,
+    copyWithPromptCmd,
     toggleCmd,
     debugCmd,
+    clearCacheCmd,
     treeView,
     configChangeListener
   );
 }
 
-export function deactivate() {}
+export function deactivate() {
+  // Clean up TokenManager resources if needed
+}

@@ -18,8 +18,10 @@ context-bundler/
 │   │   ├── ContextTreeProvider.ts # Implements TreeDataProvider and selection logic
 │   │   └── ContextNode.ts         # Node model representing files and folders
 │   └── utils/
-│       ├── IgnoreManager.ts    # Applies .gitignore rules
+│       ├── TokenManager.ts     # Progressive token indexing with caching and persistence
+│       ├── IgnoreManager.ts    # Applies .gitignore and .contextignore rules
 │       ├── TokenEstimator.ts   # Estimates tokens (1 token ≈ 4 characters)
+│       ├── TokenFormatter.ts   # Formats token counts for display
 │       └── ClipboardHandler.ts # Bundles selected files and writes to clipboard
 ```
 
@@ -27,11 +29,13 @@ Compiled JavaScript is emitted to the `out/` directory when running `npm run com
 
 ## Key Concepts
 
-- **extension.ts** sets up the sidebar tree (`ContextTreeProvider`), listens for selections and handles the `copyToClipboard` command.
-- **ContextTreeProvider** builds a live tree of the workspace using VS Code's `TreeDataProvider` API. It tracks selection state for each `ContextNode` and updates token counts using `TokenEstimator`. It respects the `showIgnoredNodes` setting to either hide or grey out ignored files.
-- **IgnoreManager** loads `.gitignore` patterns and filters out ignored files when building the tree.
+- **extension.ts** sets up the sidebar tree (`ContextTreeProvider`), initializes the `TokenManager`, and handles commands and file watchers.
+- **ContextTreeProvider** builds a live tree of the workspace using VS Code's `TreeDataProvider` API. It tracks selection state for each `ContextNode` and displays token counts from `TokenManager`. It respects the `showIgnoredNodes` setting to either hide or grey out ignored files.
+- **TokenManager** handles progressive token indexing with caching and persistence. It respects ignore rules, provides background indexing, and cascades updates when files change.
+- **IgnoreManager** loads `.gitignore` and `.contextignore` patterns and filters out ignored files.
 - **ClipboardHandler** reads selected files, formats them with their relative paths and content, then writes the result to the system clipboard.
-- **TokenEstimator** currently uses a heuristic of 1 token per 4 characters.
+- **TokenEstimator** uses a heuristic of 1 token per 4 characters.
+- **TokenFormatter** formats token counts for display: exact counts under 1k, rounded to nearest 0.1k above 1k.
 
 ## Ignored File Handling
 
@@ -41,6 +45,42 @@ The extension has a configurable setting `contextBundler.showIgnoredNodes` (defa
 - **When true**: Ignored files are shown but greyed out with "(ignored)" in the description
 
 Ignored files are never selectable, even during auto-selection operations like clicking on a parent directory. The tree automatically refreshes when this setting is changed.
+
+## Token Management Architecture
+
+The extension uses a progressive token indexing system:
+
+### **Progressive Indexing**
+
+- **Lazy Loading**: Files are indexed as they're encountered during tree navigation
+- **Background Processing**: After initial tree load, remaining files are indexed in the background
+- **Priority Queue**: Prioritizes files over directories and shallower paths over deeper ones
+
+### **Caching & Persistence**
+
+- **Memory Cache**: Token counts are stored in memory with file modification times
+- **Workspace Persistence**: Cache survives VS Code restarts using workspace state
+- **Smart Invalidation**: Only re-indexes files that have changed since last calculation
+
+### **Live Updates**
+
+- **File Watchers**: Automatically update token counts when files change
+- **Cascade Updates**: Changes to files trigger updates to parent directory token sums
+- **UI Refresh**: Tree view updates progressively as token counts become available
+
+### **Ignore Integration**
+
+- **Respects Rules**: Ignored files are skipped during indexing and don't contribute to directory sums
+- **Dynamic Updates**: Changes to `.gitignore` or `.contextignore` trigger cache invalidation and re-indexing
+
+### **Token Display Formatting**
+
+Token counts are formatted for better readability:
+
+- **Under 1,000 tokens**: Exact count (e.g., "847 tokens")
+- **1,000+ tokens**: Rounded to nearest 0.1k (e.g., "1.2k tokens", "601.4k tokens")
+- **Always includes "tokens"**: Never abbreviated to just "t"
+- **Consistent across UI**: Same formatting in tree view, selection totals, and debug info
 
 ## Development Workflow
 

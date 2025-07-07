@@ -1,11 +1,12 @@
+import * as fs from "fs";
 import * as path from "path";
 import * as vscode from "vscode";
 
 import { ContextNode, SelectionState } from "./ContextNode";
 
 import { IgnoreManager } from "../utils/IgnoreManager";
-import { TokenEstimator } from "../utils/TokenEstimator";
-import { promises as fs } from "fs";
+import { TokenFormatter } from "../utils/TokenFormatter";
+import { TokenManager } from "../utils/TokenManager";
 
 export class ContextTreeProvider
   implements vscode.TreeDataProvider<ContextNode>
@@ -24,11 +25,22 @@ export class ContextTreeProvider
   private allNodes: Map<string, ContextNode> = new Map();
   private selectionCache: Map<string, SelectionState> = new Map();
   private ignoreManager?: IgnoreManager;
-  private estimator = new TokenEstimator();
+  private tokenManager?: TokenManager;
 
-  constructor(private workspaceRoot: string | undefined) {
+  constructor(
+    private workspaceRoot: string | undefined,
+    tokenManager?: TokenManager
+  ) {
     if (workspaceRoot) {
       this.ignoreManager = new IgnoreManager(workspaceRoot);
+    }
+    this.tokenManager = tokenManager;
+
+    // Listen for token updates and refresh affected nodes
+    if (this.tokenManager) {
+      this.tokenManager.onTokensUpdated((updatedPaths) => {
+        this.onTokensUpdated(updatedPaths);
+      });
     }
   }
 
@@ -46,6 +58,24 @@ export class ContextTreeProvider
     this._onDidChangeTreeData.fire();
   }
 
+  private onTokensUpdated(updatedPaths: string[]): void {
+    // Find nodes that need to be refreshed
+    const nodesToRefresh: ContextNode[] = [];
+
+    for (const updatedPath of updatedPaths) {
+      const node = this.allNodes.get(updatedPath);
+      if (node) {
+        nodesToRefresh.push(node);
+      }
+    }
+
+    // Fire change events for updated nodes
+    if (nodesToRefresh.length > 0) {
+      this._onDidChangeTreeData.fire();
+      this.emitSelectionTokens(); // Update selection totals
+    }
+  }
+
   getTreeItem(element: ContextNode): vscode.TreeItem {
     switch (element.selectionState) {
       case "checked":
@@ -57,8 +87,23 @@ export class ContextTreeProvider
       default:
         element.iconPath = new vscode.ThemeIcon("circle-large-outline");
     }
-    if (element.tokenCount) {
-      element.description = `${element.tokenCount}t`;
+
+    // Get updated token count from TokenManager
+    if (this.tokenManager) {
+      const tokenCount = this.tokenManager.getTokenCount(
+        element.resourceUri.fsPath
+      );
+      if (tokenCount !== undefined) {
+        element.tokenCount = tokenCount;
+      }
+    }
+
+    if (element.tokenCount > 0) {
+      element.description = TokenFormatter.formatTokens(element.tokenCount);
+    } else if (
+      element.description !== TokenFormatter.formatTokensSafe(undefined)
+    ) {
+      element.description = undefined;
     }
 
     // Handle ignored nodes
@@ -195,12 +240,17 @@ export class ContextTreeProvider
       }
     }
 
-    if (fileType === vscode.FileType.File) {
-      try {
-        const content = await fs.readFile(uri.fsPath, "utf-8");
-        node.tokenCount = this.estimator.estimateTokens(content);
-      } catch {
+    // Get token count from TokenManager
+    if (this.tokenManager) {
+      const tokenCount = this.tokenManager.getTokenCount(uri.fsPath);
+      if (tokenCount !== undefined) {
+        node.tokenCount = tokenCount;
+      } else {
+        // Show "calculating..." for files being indexed
         node.tokenCount = 0;
+        if (fileType === vscode.FileType.File) {
+          node.description = TokenFormatter.formatTokensSafe(undefined);
+        }
       }
     }
     return node;
@@ -267,10 +317,38 @@ export class ContextTreeProvider
   }
 
   private emitSelectionTokens(): void {
-    const total = this.getSelectedNodes().reduce(
-      (sum, n) => sum + n.tokenCount,
-      0
-    );
+    let total = 0;
+    const countedPaths = new Set<string>();
+
+    // Get all checked nodes (both files and directories)
+    for (const node of this.allNodes.values()) {
+      if (node.selectionState === "checked" && !node.isIgnored) {
+        const nodePath = node.resourceUri.fsPath;
+
+        // Check if this path is already counted by a parent directory
+        let isChildOfCountedDirectory = false;
+        for (const countedPath of countedPaths) {
+          if (
+            nodePath.startsWith(countedPath + path.sep) ||
+            nodePath === countedPath
+          ) {
+            isChildOfCountedDirectory = true;
+            break;
+          }
+        }
+
+        if (!isChildOfCountedDirectory) {
+          if (this.tokenManager) {
+            const tokenCount = this.tokenManager.getTokenCountSync(nodePath);
+            total += tokenCount;
+          } else {
+            total += node.tokenCount;
+          }
+          countedPaths.add(nodePath);
+        }
+      }
+    }
+
     this._onSelectionChange.fire(total);
   }
 
@@ -285,6 +363,10 @@ export class ContextTreeProvider
 
   getSelectedNodes(): ContextNode[] {
     const nodes: ContextNode[] = [];
+
+    // For clipboard purposes, we want all individual files that are selected
+    // This includes files that are selected directly, or files that are selected
+    // because their parent directory is selected
     for (const node of this.allNodes.values()) {
       if (
         node.selectionState === "checked" &&
@@ -294,6 +376,77 @@ export class ContextTreeProvider
         nodes.push(node);
       }
     }
+
+    // Additionally, for selected directories, we need to recursively discover
+    // all files within them, even if they haven't been loaded into the tree yet
+    for (const node of this.allNodes.values()) {
+      if (
+        node.selectionState === "checked" &&
+        node.fileType === vscode.FileType.Directory &&
+        !node.isIgnored
+      ) {
+        // Recursively discover all files in this directory
+        const discoveredFiles = this.discoverFilesInDirectory(
+          node.resourceUri.fsPath
+        );
+        nodes.push(...discoveredFiles);
+      }
+    }
+
     return nodes;
+  }
+
+  /**
+   * Recursively discover all files within a directory, respecting ignore rules
+   */
+  private discoverFilesInDirectory(dirPath: string): ContextNode[] {
+    const files: ContextNode[] = [];
+
+    try {
+      // Use synchronous file system operations for discovery
+      const discoverRecursive = (currentPath: string): void => {
+        const entries = fs.readdirSync(currentPath);
+
+        for (const entry of entries) {
+          const entryPath = path.join(currentPath, entry);
+
+          // Skip ignored files
+          if (this.ignoreManager && this.ignoreManager.isIgnored(entryPath)) {
+            continue;
+          }
+
+          const stat = fs.statSync(entryPath);
+
+          if (stat.isDirectory()) {
+            // Recursively discover files in subdirectories
+            discoverRecursive(entryPath);
+          } else {
+            // Create a temporary ContextNode for this file
+            const uri = vscode.Uri.file(entryPath);
+            const node = new ContextNode(
+              uri,
+              path.basename(entryPath),
+              vscode.FileType.File
+            );
+
+            // Get token count if available
+            if (this.tokenManager) {
+              const tokenCount = this.tokenManager.getTokenCountSync(entryPath);
+              if (tokenCount !== undefined) {
+                node.tokenCount = tokenCount;
+              }
+            }
+
+            files.push(node);
+          }
+        }
+      };
+
+      discoverRecursive(dirPath);
+    } catch (error) {
+      console.warn(`Error discovering files in directory ${dirPath}:`, error);
+    }
+
+    return files;
   }
 }
