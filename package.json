@@ -11,10 +11,20 @@
     "Other"
   ],
   "activationEvents": [
-    "*"
+    "onStartupFinished"
   ],
   "main": "./out/extension.js",
   "contributes": {
+    "configuration": {
+      "title": "Context Bundler",
+      "properties": {
+        "contextBundler.showIgnoredNodes": {
+          "type": "boolean",
+          "default": false,
+          "description": "Whether to show ignored files and folders in the tree view. When enabled, ignored items will be displayed but greyed out."
+        }
+      }
+    },
     "views": {
       "explorer": [
         {
@@ -33,6 +43,10 @@
       {
         "command": "context-bundler.toggleNode",
         "title": "Toggle Node"
+      },
+      {
+        "command": "context-bundler.debugSettings",
+        "title": "Debug Context Bundler Settings"
       }
     ],
     "menus": {
@@ -46,17 +60,25 @@
     }
   },
   "scripts": {
+    "vscode:prepublish": "npm run compile",
     "compile": "tsc -p ./",
     "watch": "tsc -watch -p ./",
+    "pretest": "npm run compile && npm run lint",
+    "lint": "eslint src",
     "test": "node ./out/test/runTest"
   },
   "devDependencies": {
-    "@types/ignore": "^5.2.2",
     "@types/mocha": "^10.0.10",
     "@types/node": "^20.11.19",
+    "@types/sinon": "^17.0.4",
     "@types/vscode": "^1.85.0",
+    "@typescript-eslint/eslint-plugin": "^8.35.1",
+    "@typescript-eslint/parser": "^8.35.1",
     "@vscode/test-electron": "^2.5.2",
+    "eslint": "^9.30.1",
+    "eslint-config-prettier": "^10.1.5",
     "mocha": "^11.7.1",
+    "sinon": "^21.0.0",
     "typescript": "^5.2.2"
   },
   "dependencies": {
