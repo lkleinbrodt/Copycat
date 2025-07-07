@@ -1,4 +1,4 @@
-<img src="images/icon.png" alt="CopyCat Logo" width="32" height="32">
+<img src="images/icon.png" alt="CopyCat Logo" width="128" height="128">
 
 # CopyCat
 
