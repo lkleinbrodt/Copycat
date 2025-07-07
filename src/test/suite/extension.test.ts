@@ -10,18 +10,18 @@ suite("Extension Test Suite", () => {
   vscode.window.showInformationMessage("Start all tests.");
 
   test("Extension should be present", () => {
-    const ext = vscode.extensions.getExtension("codex.context-bundler");
+    const ext = vscode.extensions.getExtension("LandonKleinbrodt.copycat");
     assert.ok(ext);
   });
 
   test("Commands are registered", async () => {
-    const ext = vscode.extensions.getExtension("codex.context-bundler");
+    const ext = vscode.extensions.getExtension("LandonKleinbrodt.copycat");
     assert.ok(ext);
     await ext!.activate();
     const commands = await vscode.commands.getCommands(true);
-    assert.ok(commands.includes("context-bundler.copyToClipboard"));
-    assert.ok(commands.includes("context-bundler.copyToClipboardWithPrompt"));
-    assert.ok(commands.includes("context-bundler.toggleNode"));
+    assert.ok(commands.includes("copycat.copyToClipboard"));
+    assert.ok(commands.includes("copycat.copyToClipboardWithPrompt"));
+    assert.ok(commands.includes("copycat.toggleNode"));
   });
 
   test("Directory selection should recursively select all files", async function () {

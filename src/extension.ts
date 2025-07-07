@@ -7,7 +7,7 @@ import { TokenFormatter } from "./utils/TokenFormatter";
 import { TokenManager } from "./utils/TokenManager";
 
 export function activate(context: vscode.ExtensionContext) {
-  console.log('Extension "context-bundler" is now active!');
+  console.log('Extension "copycat" is now active!');
 
   const rootPath =
     vscode.workspace.workspaceFolders &&
@@ -38,7 +38,7 @@ export function activate(context: vscode.ExtensionContext) {
   });
 
   const toggleCmd = vscode.commands.registerCommand(
-    "context-bundler.toggleNode",
+    "copycat.toggleNode",
     (node: any) => {
       treeProvider.toggleNode(node);
     }
@@ -49,7 +49,7 @@ export function activate(context: vscode.ExtensionContext) {
     : undefined;
 
   const copyCmd = vscode.commands.registerCommand(
-    "context-bundler.copyToClipboard",
+    "copycat.copyToClipboard",
     () => {
       if (!clipboardHandler) {
         vscode.window.showWarningMessage("No workspace opened.");
@@ -65,7 +65,7 @@ export function activate(context: vscode.ExtensionContext) {
   );
 
   const copyWithPromptCmd = vscode.commands.registerCommand(
-    "context-bundler.copyToClipboardWithPrompt",
+    "copycat.copyToClipboardWithPrompt",
     async () => {
       if (!clipboardHandler) {
         vscode.window.showWarningMessage("No workspace opened.");
@@ -105,12 +105,12 @@ export function activate(context: vscode.ExtensionContext) {
   );
 
   const debugCmd = vscode.commands.registerCommand(
-    "context-bundler.debugSettings",
+    "copycat.debugSettings",
     () => {
       const config = vscode.workspace.getConfiguration("contextBundler");
       const showIgnoredNodes = config.get("showIgnoredNodes", false);
 
-      let message = `Context Bundler Settings:\n- Show Ignored Nodes: ${showIgnoredNodes}\n- Workspace Root: ${
+      let message = `CopyCat Settings:\n- Show Ignored Nodes: ${showIgnoredNodes}\n- Workspace Root: ${
         rootPath || "None"
       }`;
 
@@ -127,7 +127,7 @@ export function activate(context: vscode.ExtensionContext) {
       }
 
       vscode.window.showInformationMessage(message);
-      console.log("Context Bundler Debug Info:", {
+      console.log("CopyCat Debug Info:", {
         showIgnoredNodes,
         workspaceRoot: rootPath,
         hasIgnoreManager: !!treeProvider["ignoreManager"],
@@ -137,7 +137,7 @@ export function activate(context: vscode.ExtensionContext) {
   );
 
   const clearCacheCmd = vscode.commands.registerCommand(
-    "context-bundler.clearCache",
+    "copycat.clearCache",
     async () => {
       if (!tokenManager) {
         vscode.window.showWarningMessage("No workspace opened.");

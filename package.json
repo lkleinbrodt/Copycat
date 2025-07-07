@@ -1,9 +1,14 @@
 {
-  "name": "context-bundler",
-  "displayName": "Context Bundler",
+  "name": "copycatBundler",
+  "displayName": "CopyCat Bundler",
   "description": "Easily bundle files for LLM context windows.",
-  "version": "0.0.1",
-  "publisher": "codex",
+  "version": "0.0.2",
+  "publisher": "LandonKleinbrodt",
+  "icon": "images/icon.png",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/lkleinbrodt/Copycat.git"
+  },
   "engines": {
     "vscode": "^1.85.0"
   },
@@ -16,7 +21,7 @@
   "main": "./out/extension.js",
   "contributes": {
     "configuration": {
-      "title": "Context Bundler",
+      "title": "CopyCat",
       "properties": {
         "contextBundler.showIgnoredNodes": {
           "type": "boolean",
@@ -34,40 +39,40 @@
       "explorer": [
         {
           "id": "contextBundlerView",
-          "name": "Context Bundler",
+          "name": "CopyCat",
           "type": "tree"
         }
       ]
     },
     "commands": [
       {
-        "command": "context-bundler.copyToClipboard",
+        "command": "copycat.copyToClipboard",
         "title": "CopyCat: Copy Selected Files to Clipboard",
         "icon": "$(clippy)"
       },
       {
-        "command": "context-bundler.copyToClipboardWithPrompt",
+        "command": "copycat.copyToClipboardWithPrompt",
         "title": "CopyCat: Copy Selected Files to Clipboard with Prompt",
         "icon": "$(comment)"
       },
       {
-        "command": "context-bundler.toggleNode",
+        "command": "copycat.toggleNode",
         "title": "Toggle Node"
       },
       {
-        "command": "context-bundler.debugSettings",
-        "title": "Debug Context Bundler Settings"
+        "command": "copycat.debugSettings",
+        "title": "Debug CopyCat Settings"
       }
     ],
     "menus": {
       "view/title": [
         {
-          "command": "context-bundler.copyToClipboard",
+          "command": "copycat.copyToClipboard",
           "when": "view == contextBundlerView",
           "group": "navigation"
         },
         {
-          "command": "context-bundler.copyToClipboardWithPrompt",
+          "command": "copycat.copyToClipboardWithPrompt",
           "when": "view == contextBundlerView",
           "group": "navigation"
         }

@@ -1,4 +1,4 @@
-# Context Bundler - Project Overview for AI
+# CopyCat - Project Overview for AI
 
 This document summarizes the codebase for LLM agents that need to understand or modify the project.
 
@@ -9,7 +9,7 @@ The extension helps developers collect multiple files from a workspace and copy 
 ## Repository Structure
 
 ```
-context-bundler/
+copycat/
 ├── package.json          # Extension manifest, scripts and dependencies
 ├── tsconfig.json         # TypeScript compiler options
 ├── src/
@@ -87,6 +87,6 @@ Token counts are formatted for better readability:
 1. Install dependencies: `npm install`.
 2. Compile TypeScript: `npm run compile`.
 3. Launch an Extension Development Host from VS Code (`F5`).
-4. Use the _Context Bundler_ view to select files and copy them to the clipboard.
+4. Use the _CopyCat_ view to select files and copy them to the clipboard.
 
 This repo intentionally has no network access or external APIs beyond the VS Code extension API. The code is self-contained and focuses on packaging files for LLM context windows.

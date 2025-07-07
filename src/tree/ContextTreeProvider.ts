@@ -123,7 +123,7 @@ export class ContextTreeProvider
     }
 
     element.command = {
-      command: "context-bundler.toggleNode",
+      command: "copycat.toggleNode",
       title: "Toggle",
       arguments: [element],
     };

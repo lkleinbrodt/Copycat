@@ -60,7 +60,7 @@ suite("Ignore Logic & Show Ignored Nodes", () => {
 
     // Create temporary directory
     tempDir = fs.mkdtempSync(
-      path.join(require("os").tmpdir(), "context-bundler-test-")
+      path.join(require("os").tmpdir(), "copycat-test-")
     );
     workspaceRoot = tempDir;
 
