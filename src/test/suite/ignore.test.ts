@@ -285,4 +285,79 @@ suite("Ignore Logic & Show Ignored Nodes", () => {
       "Ignored node should not be toggleable"
     );
   });
+
+  test("Default ignore patterns are respected", async () => {
+    // Create files that should be ignored by default patterns
+    await createTempFile("image.png", "fake png content");
+    await createTempFile("data.csv", "fake csv content");
+    await createTempFile("package-lock.json", "fake lock content");
+    await createTempFile("video.mp4", "fake video content");
+    await createTempDir("node_modules");
+    await createTempFile("node_modules/some-package.js", "package content");
+    await createTempDir("venv");
+    await createTempFile("venv/python.exe", "python binary");
+
+    // Stub config to return default ignore patterns
+    configStub.returns({
+      get: (key: string, def: any) => {
+        if (key === "defaultIgnorePatterns") {
+          return [
+            "*.png",
+            "*.csv",
+            "package-lock.json",
+            "*.mp4",
+            "node_modules/",
+            "venv/",
+          ];
+        }
+        return def;
+      },
+    } as any);
+
+    // Create a new provider with the updated config
+    const newProvider = new ContextTreeProvider(workspaceRoot);
+
+    // Get root children
+    const rootUri = vscode.Uri.file(workspaceRoot);
+    const rootStat = await vscode.workspace.fs.stat(rootUri);
+    const rootNode = await (newProvider as any).createNode(rootUri, rootStat);
+    const children = await (newProvider as any).getDirectoryChildren(rootNode);
+
+    // Should not contain files that match default ignore patterns
+    const childNames = children.map((child: ContextNode) => child.label);
+    assert.ok(
+      !childNames.includes("image.png"),
+      "image.png should be ignored by default pattern"
+    );
+    assert.ok(
+      !childNames.includes("data.csv"),
+      "data.csv should be ignored by default pattern"
+    );
+    assert.ok(
+      !childNames.includes("package-lock.json"),
+      "package-lock.json should be ignored by default pattern"
+    );
+    assert.ok(
+      !childNames.includes("video.mp4"),
+      "video.mp4 should be ignored by default pattern"
+    );
+    assert.ok(
+      !childNames.includes("node_modules"),
+      "node_modules should be ignored by default pattern"
+    );
+    assert.ok(
+      !childNames.includes("venv"),
+      "venv should be ignored by default pattern"
+    );
+
+    // Should still contain visible files
+    assert.ok(
+      childNames.includes("visible.txt"),
+      "visible.txt should still be visible"
+    );
+    assert.ok(
+      childNames.includes("visible-dir"),
+      "visible-dir should still be visible"
+    );
+  });
 });

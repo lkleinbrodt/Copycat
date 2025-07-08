@@ -281,8 +281,8 @@ export class ClipboardHandler {
         const aStat = fs.statSync(aPath);
         const bStat = fs.statSync(bPath);
 
-        if (aStat.isDirectory() && !bStat.isDirectory()) return -1;
-        if (!aStat.isDirectory() && bStat.isDirectory()) return 1;
+        if (aStat.isDirectory() && !bStat.isDirectory()) {return -1;}
+        if (!aStat.isDirectory() && bStat.isDirectory()) {return 1;}
         return a.localeCompare(b);
       });
 
@@ -382,7 +382,7 @@ export class ClipboardHandler {
   private matchesPattern(filePath: string, pattern: string): boolean {
     // Simple pattern matching for common gitignore patterns
     const cleanPattern = pattern.trim();
-    if (!cleanPattern) return false;
+    if (!cleanPattern) {return false;}
 
     // Handle directory patterns (ending with /)
     if (cleanPattern.endsWith("/")) {

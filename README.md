@@ -10,7 +10,7 @@ CopyCat is a VS Code extension that helps you share code with large language mod
 
 - **Visual File Selection**: Browse and select files through an intuitive tree view in the Explorer
 - **Token Estimation**: See approximate token counts for each file to manage context window limits
-- **Smart Ignoring**: Automatically respects `.gitignore` rules to exclude unnecessary files
+- **Smart Ignoring**: Automatically respects `.gitignore` rules and includes a comprehensive default ignore list for common file types that aren't useful for LLM context
 - **Multiple Copy Modes**:
   - Copy files with basic formatting
   - Copy files with a custom prompt for better LLM context
@@ -57,70 +57,26 @@ When you copy files, they're formatted as clean markdown with:
 1. **Codebase Overview** - Brief introduction for the LLM
 2. **File Structure** - Complete project tree (excluding ignored files)
 3. **Selected Files** - Full contents of your chosen files with proper syntax highlighting
-
-Example output:
-
-```markdown
-# Codebase Overview
-
-This is a codebase with the following structure. The selected files are provided below with their full contents.
-
-## File Structure
-```
-
-Copycat/
-├── src/
-│ ├── extension.ts
-│ └── utils/
-│ └── ClipboardHandler.ts
-└── package.json
-
-````
-
-## Selected Files
-
-### src/extension.ts
-
-```typescript
-export function activate(context: vscode.ExtensionContext) {
-  // Your code here
-}
-````
-
-```
+4. **Prompts (optional)** - System/user prompts that get added to the context so you can simply paste and go
 
 ## ⚙️ Settings
 
 Configure CopyCat in VS Code settings:
 
-- **Show Ignored Nodes**: When enabled, files matching `.gitignore` patterns appear greyed out but unselectable. When disabled (default), they're completely hidden.
+- **Show Ignored Nodes**: When enabled, files matching ignore patterns appear greyed out but unselectable. When disabled (default), they're completely hidden.
 - **System Prompt**: Add a custom system prompt that gets prepended to every "Copy with Prompt" request.
+- **Default Ignore Patterns**: Customize the list of file patterns that are automatically ignored. These patterns are applied in addition to `.gitignore` and `.contextignore` rules. The default list includes common file types that aren't useful for LLM context like images, videos, data files, build artifacts, and dependencies.
 
-## 🎯 Supported Languages
+## 📁 Ignore Files
 
-CopyCat automatically detects and applies syntax highlighting for:
-- JavaScript, TypeScript, Python, Java, C/C++
-- Go, Rust, Ruby, PHP, Swift, Kotlin, Scala
-- Shell scripts, SQL, JSON, YAML, XML
-- Markdown, HTML, CSS, and many more
+CopyCat respects multiple ignore mechanisms (in order of precedence):
 
-## 🔧 Requirements
+1. **Default Ignore Patterns**: Built-in patterns for common file types (configurable in settings)
+2. **`.gitignore`**: Will ignore files that are ignored by git
+3. **`.contextignore`**: Project-specific ignore rules for LLM context (create this file in your project root)
 
-- VS Code 1.85.0 or higher
-- A workspace/folder opened in VS Code
-
-## 💡 Tips
-
-- **Token Management**: Keep an eye on the token count to stay within your LLM's context window limits
-- **Selective Sharing**: Only include relevant files to get more focused AI responses
-- **Use Prompts**: The "Copy with Prompt" feature helps LLMs understand what you're trying to accomplish
-- **Ignore Files**: The extension automatically respects `.gitignore`, but you can also create a `.contextignore` file for additional exclusions
+Create a `.contextignore` file in your project root to specify additional files or patterns that should be excluded from LLM context, using the same syntax as `.gitignore`.
 
 ## 🤝 Contributing
 
 Found a bug or have a feature request? Visit our [GitHub repository](https://github.com/lkleinbrodt/Copycat) to contribute or report issues.
-
----
-
-**Happy coding with AI! 🚀**
-```

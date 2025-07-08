@@ -17,8 +17,9 @@ export function activate(context: vscode.ExtensionContext) {
 
   // Initialize TokenManager if we have a workspace
   let tokenManager: TokenManager | undefined;
+  let ignoreManager: IgnoreManager | undefined;
   if (rootPath) {
-    const ignoreManager = new IgnoreManager(rootPath);
+    ignoreManager = new IgnoreManager(rootPath);
     tokenManager = new TokenManager(
       rootPath,
       ignoreManager,
@@ -109,10 +110,14 @@ export function activate(context: vscode.ExtensionContext) {
     () => {
       const config = vscode.workspace.getConfiguration("contextBundler");
       const showIgnoredNodes = config.get("showIgnoredNodes", false);
+      const defaultIgnorePatterns = config.get<string[]>(
+        "defaultIgnorePatterns",
+        []
+      );
 
-      let message = `CopyCat Settings:\n- Show Ignored Nodes: ${showIgnoredNodes}\n- Workspace Root: ${
-        rootPath || "None"
-      }`;
+      let message = `CopyCat Settings:\n- Show Ignored Nodes: ${showIgnoredNodes}\n- Default Ignore Patterns: ${
+        defaultIgnorePatterns.length
+      } patterns\n- Workspace Root: ${rootPath || "None"}`;
 
       if (tokenManager) {
         const stats = tokenManager.getCacheStats();
@@ -126,9 +131,18 @@ export function activate(context: vscode.ExtensionContext) {
         )}\n- 601409 → ${TokenFormatter.formatTokens(601409)}`;
       }
 
+      // Show first few default ignore patterns as examples
+      if (defaultIgnorePatterns.length > 0) {
+        const examples = defaultIgnorePatterns.slice(0, 5).join(", ");
+        message += `\n\nDefault Ignore Pattern Examples:\n${examples}${
+          defaultIgnorePatterns.length > 5 ? "..." : ""
+        }`;
+      }
+
       vscode.window.showInformationMessage(message);
       console.log("CopyCat Debug Info:", {
         showIgnoredNodes,
+        defaultIgnorePatterns: defaultIgnorePatterns.length,
         workspaceRoot: rootPath,
         hasIgnoreManager: !!treeProvider["ignoreManager"],
         tokenManagerStats: tokenManager?.getCacheStats(),
@@ -187,6 +201,19 @@ export function activate(context: vscode.ExtensionContext) {
   const configChangeListener = vscode.workspace.onDidChangeConfiguration(
     (event) => {
       if (event.affectsConfiguration("contextBundler.showIgnoredNodes")) {
+        treeProvider.refresh();
+      }
+
+      // Handle changes to default ignore patterns
+      if (event.affectsConfiguration("contextBundler.defaultIgnorePatterns")) {
+        if (ignoreManager) {
+          ignoreManager.reloadRules();
+          // Clear token cache and re-index since ignore rules changed
+          if (tokenManager) {
+            tokenManager.clearCache();
+            tokenManager.startBackgroundIndexing();
+          }
+        }
         treeProvider.refresh();
       }
     }
