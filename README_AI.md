@@ -37,21 +37,20 @@ Three modes control how file structure is included in output:
 2. **Relevant Tree** (`relevant`): Only selected files + parent directories
 3. **No Tree** (`none`): File contents only
 
-Controlled by `contextBundler.fileTreeMode` setting and toolbar button.
+Controlled by `copyCatBundler.fileTreeMode` setting and toolbar button.
 
 ## Configuration
 
-- `contextBundler.fileTreeMode`: "full" | "relevant" | "none"
-- `contextBundler.showIgnoredNodes`: Show/hide ignored files in tree
-- `contextBundler.defaultIgnorePatterns`: Built-in ignore patterns
-- `contextBundler.systemPrompt`: Default system prompt for LLM requests
+- `copyCatBundler.fileTreeMode`: "full" | "relevant" | "none"
+- `copyCatBundler.showIgnoredNodes`: Show/hide ignored files in tree
+- `copyCatBundler.defaultIgnorePatterns`: Built-in ignore patterns
+- `copyCatBundler.systemPrompt`: Default system prompt for LLM requests
 
 ## Commands
 
 - `copycat.copyToClipboard`: Basic file copying
 - `copycat.copyToClipboardWithPrompt`: Copy with user prompt
-- `copycat.toggleFileTreeMode`: Cycle through tree modes
-- `copycat.setFileTreeMode`: Select specific tree mode
+- `copycat.setFileTreeMode`: Set file tree mode via dropdown
 - `copycat.toggleNode`: Toggle file/folder selection
 - `copycat.debugSettings`: Show current settings
 - `copycat.clearCache`: Clear token cache

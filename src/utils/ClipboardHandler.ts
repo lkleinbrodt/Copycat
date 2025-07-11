@@ -481,28 +481,38 @@ export class ClipboardHandler {
   ): Promise<void> {
     // Get file tree mode from settings if not provided
     if (!fileTreeMode) {
-      const config = vscode.workspace.getConfiguration("contextBundler");
+      const config = vscode.workspace.getConfiguration("copyCatBundler");
       fileTreeMode = config.get<FileTreeMode>("fileTreeMode", "full");
     }
 
     let bundled = "";
 
     // Add introduction message
-    bundled += "# Codebase Overview\n\n";
+    bundled += "# Codebase Analysis Request\n\n";
     bundled +=
-      "This is a codebase with the following structure. The selected files are provided below with their full contents.\n\n";
+      "Below is a codebase with its file structure and selected source files. Please analyze this code and provide assistance based on the user's request.\n\n";
 
     // Add file tree based on mode
     const fileTree = await this.generateFileTree(fileTreeMode, selectedNodes);
     if (fileTree) {
-      bundled += "## File Structure\n\n";
+      bundled += "## Project File Structure\n\n";
+
+      // Add a note about the tree mode
+      if (fileTreeMode === "relevant") {
+        bundled +=
+          "*Note: This tree shows only a subset of the project's files and folders, as requested by the user.*\n\n";
+      } else if (fileTreeMode === "full") {
+        bundled +=
+          "*Note: This tree shows the complete project structure.*\n\n";
+      }
+
       bundled += "```\n";
       bundled += fileTree;
       bundled += "\n```\n\n";
     }
 
     // Add selected files
-    bundled += "## Selected Files\n\n";
+    bundled += "## Source Code Files\n\n";
     for (const node of selectedNodes) {
       const relative = path.relative(
         this.workspaceRoot,
@@ -515,7 +525,7 @@ export class ClipboardHandler {
       const languageHint = this.getLanguageHint(node.resourceUri.fsPath);
 
       // Format with markdown heading and fenced code block
-      bundled += `# ${relative}\n\n`;
+      bundled += `### File: ${relative}\n\n`;
       if (languageHint) {
         bundled += `\`\`\`${languageHint}\n${content}\n\`\`\`\n\n`;
       } else {
@@ -525,15 +535,19 @@ export class ClipboardHandler {
 
     // Add prompt section if provided
     if ((systemPrompt && systemPrompt.trim()) || (prompt && prompt.trim())) {
-      bundled += "## Request\n\n";
-      bundled +=
-        "> **Instructions for LLM:** The following section contains a system prompt (for overall guidance) and a user request. Use the system prompt to guide your reasoning and the user request to generate your response.\n\n";
+      bundled += "## User Request & Instructions\n\n";
+
       if (systemPrompt && systemPrompt.trim()) {
-        bundled += `**System Prompt:**\n${systemPrompt.trim()}\n\n`;
+        bundled += `**Context & Guidelines:**\n${systemPrompt.trim()}\n\n`;
       }
+
       if (prompt && prompt.trim()) {
-        bundled += `**User Request:**\n${prompt.trim()}\n\n`;
+        bundled += `**Task/Question:**\n${prompt.trim()}\n\n`;
       }
+
+      bundled += "---\n\n";
+      bundled +=
+        "**Please provide a comprehensive response that addresses the user's request. Consider the code structure, patterns, and implementation details when formulating your answer.**\n\n";
     }
 
     await vscode.env.clipboard.writeText(bundled);

@@ -46,7 +46,7 @@ export class ContextTreeProvider
 
   private get showIgnoredNodes(): boolean {
     return vscode.workspace
-      .getConfiguration("contextBundler")
+      .getConfiguration("copyCatBundler")
       .get("showIgnoredNodes", false);
   }
 

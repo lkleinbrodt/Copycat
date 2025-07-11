@@ -16,7 +16,7 @@ export class IgnoreManager {
     this.ig.add(".git");
 
     // Load default ignore patterns from configuration
-    const config = vscode.workspace.getConfiguration("contextBundler");
+    const config = vscode.workspace.getConfiguration("copyCatBundler");
     const defaultPatterns = config.get<string[]>("defaultIgnorePatterns", []);
 
     if (defaultPatterns.length > 0) {

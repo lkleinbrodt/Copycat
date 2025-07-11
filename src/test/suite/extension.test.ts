@@ -24,19 +24,18 @@ suite("Extension Test Suite", () => {
     assert.ok(commands.includes("copycat.copyToClipboard"));
     assert.ok(commands.includes("copycat.copyToClipboardWithPrompt"));
     assert.ok(commands.includes("copycat.toggleNode"));
-    assert.ok(commands.includes("copycat.toggleFileTreeMode"));
     assert.ok(commands.includes("copycat.setFileTreeMode"));
   });
 
   test("File tree mode configuration works", async () => {
-    const config = vscode.workspace.getConfiguration("contextBundler");
+    const config = vscode.workspace.getConfiguration("copyCatBundler");
 
     // Test default value
-    const defaultMode = config.get<FileTreeMode>("fileTreeMode", "full");
+    const defaultMode = config.get<FileTreeMode>("fileTreeMode", "relevant");
     assert.strictEqual(
       defaultMode,
-      "full",
-      "Default file tree mode should be 'full'"
+      "relevant",
+      "Default file tree mode should be 'relevant'"
     );
 
     // Test setting a new value
@@ -45,7 +44,7 @@ suite("Extension Test Suite", () => {
       "relevant",
       vscode.ConfigurationTarget.Workspace
     );
-    const newMode = config.get<FileTreeMode>("fileTreeMode", "full");
+    const newMode = config.get<FileTreeMode>("fileTreeMode", "relevant");
     assert.strictEqual(
       newMode,
       "relevant",
@@ -55,7 +54,7 @@ suite("Extension Test Suite", () => {
     // Reset to default
     await config.update(
       "fileTreeMode",
-      "full",
+      "relevant",
       vscode.ConfigurationTarget.Workspace
     );
   });

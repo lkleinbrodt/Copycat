@@ -32,7 +32,7 @@ export function activate(context: vscode.ExtensionContext) {
   }
 
   const treeProvider = new ContextTreeProvider(rootPath, tokenManager);
-  const treeView = vscode.window.createTreeView("contextBundlerView", {
+  const treeView = vscode.window.createTreeView("copyCatBundlerView", {
     treeDataProvider: treeProvider,
   });
   treeProvider.onSelectionChange((total) => {
@@ -93,7 +93,7 @@ export function activate(context: vscode.ExtensionContext) {
       });
 
       // Get system prompt from settings
-      const config = vscode.workspace.getConfiguration("contextBundler");
+      const config = vscode.workspace.getConfiguration("copyCatBundler");
       const systemPrompt = config.get<string>("systemPrompt", "");
 
       if (prompt) {
@@ -107,42 +107,11 @@ export function activate(context: vscode.ExtensionContext) {
   );
 
   // File tree mode commands
-  const toggleFileTreeModeCmd = vscode.commands.registerCommand(
-    "copycat.toggleFileTreeMode",
-    async () => {
-      const config = vscode.workspace.getConfiguration("contextBundler");
-      const currentMode = config.get<FileTreeMode>("fileTreeMode", "full");
-
-      // Cycle through modes: full -> relevant -> none -> full
-      const modes: FileTreeMode[] = ["full", "relevant", "none"];
-      const currentIndex = modes.indexOf(currentMode);
-      const nextIndex = (currentIndex + 1) % modes.length;
-      const newMode = modes[nextIndex];
-
-      await config.update(
-        "fileTreeMode",
-        newMode,
-        vscode.ConfigurationTarget.Workspace
-      );
-
-      const modeText =
-        newMode === "full"
-          ? "Full Tree"
-          : newMode === "relevant"
-          ? "Relevant Tree"
-          : "No Tree";
-
-      vscode.window.showInformationMessage(
-        `File tree mode set to: ${modeText}`
-      );
-    }
-  );
-
   const setFileTreeModeCmd = vscode.commands.registerCommand(
     "copycat.setFileTreeMode",
     async () => {
-      const config = vscode.workspace.getConfiguration("contextBundler");
-      const currentMode = config.get<FileTreeMode>("fileTreeMode", "full");
+      const config = vscode.workspace.getConfiguration("copyCatBundler");
+      const currentMode = config.get<FileTreeMode>("fileTreeMode", "relevant");
 
       const mode = await vscode.window.showQuickPick(
         [
@@ -193,10 +162,81 @@ export function activate(context: vscode.ExtensionContext) {
     }
   );
 
+  const setSystemPromptCmd = vscode.commands.registerCommand(
+    "copycat.setSystemPrompt",
+    async () => {
+      const config = vscode.workspace.getConfiguration("copyCatBundler");
+      const currentPrompt = config.get<string>("systemPrompt", "");
+
+      const presets = [
+        {
+          label: "Planner",
+          description:
+            "Generate detailed step-by-step plans for AI coding agents",
+          value:
+            "You are a senior software architect and planning expert. Your role is to analyze the provided codebase and user request, then generate a comprehensive, detailed step-by-step plan that an AI coding agent can follow to accomplish the task.\n\nYour plan must include:\n1. **Context Analysis**: Summarize the relevant codebase structure, patterns, and technologies\n2. **Objective Breakdown**: Clearly define what needs to be accomplished\n3. **Detailed Steps**: Provide specific, actionable steps with file paths, function names, and implementation details\n4. **Dependencies**: Identify any new dependencies, imports, or setup requirements\n5. **Testing Strategy**: Suggest how to verify the implementation works correctly\n6. **Edge Cases**: Consider potential issues and how to handle them\n\nRemember: The coding agent will only have access to the files you've selected, so provide all necessary context and be extremely specific about what needs to be done.",
+        },
+        {
+          label: "Custom...",
+          description: "Enter your own system prompt",
+          value: "CUSTOM",
+        },
+        {
+          label: "Clear",
+          description: "Remove system prompt",
+          value: "",
+        },
+      ];
+
+      const selected = await vscode.window.showQuickPick(presets, {
+        placeHolder: `Current: ${
+          currentPrompt ? `${currentPrompt.substring(0, 50)}...` : "None set"
+        }`,
+        canPickMany: false,
+      });
+
+      if (selected) {
+        let finalPrompt = selected.value;
+
+        if (selected.value === "CUSTOM") {
+          const customPrompt = await vscode.window.showInputBox({
+            prompt: "Enter your custom system prompt",
+            placeHolder: "You are a...",
+            value: currentPrompt,
+            validateInput: (value) => {
+              if (value && value.length > 2000) {
+                return "System prompt should be under 2000 characters";
+              }
+              return null;
+            },
+          });
+
+          if (customPrompt === undefined) {
+            return; // User cancelled
+          }
+          finalPrompt = customPrompt;
+        }
+
+        await config.update(
+          "systemPrompt",
+          finalPrompt,
+          vscode.ConfigurationTarget.Workspace
+        );
+
+        const action = finalPrompt ? "updated" : "cleared";
+        vscode.window.showInformationMessage(
+          `System prompt ${action}! ${
+            finalPrompt ? `(${finalPrompt.length} characters)` : ""
+          }`
+        );
+      }
+    }
+  );
+
   const debugCmd = vscode.commands.registerCommand(
     "copycat.debugSettings",
     () => {
-      const config = vscode.workspace.getConfiguration("contextBundler");
+      const config = vscode.workspace.getConfiguration("copyCatBundler");
       const showIgnoredNodes = config.get("showIgnoredNodes", false);
       const defaultIgnorePatterns = config.get<string[]>(
         "defaultIgnorePatterns",
@@ -288,12 +328,12 @@ export function activate(context: vscode.ExtensionContext) {
   // Listen for configuration changes to refresh the tree
   const configChangeListener = vscode.workspace.onDidChangeConfiguration(
     (event) => {
-      if (event.affectsConfiguration("contextBundler.showIgnoredNodes")) {
+      if (event.affectsConfiguration("copyCatBundler.showIgnoredNodes")) {
         treeProvider.refresh();
       }
 
       // Handle changes to default ignore patterns
-      if (event.affectsConfiguration("contextBundler.defaultIgnorePatterns")) {
+      if (event.affectsConfiguration("copyCatBundler.defaultIgnorePatterns")) {
         if (ignoreManager) {
           ignoreManager.reloadRules();
           // Clear token cache and re-index since ignore rules changed
@@ -313,8 +353,8 @@ export function activate(context: vscode.ExtensionContext) {
   context.subscriptions.push(
     copyCmd,
     copyWithPromptCmd,
-    toggleFileTreeModeCmd,
     setFileTreeModeCmd,
+    setSystemPromptCmd,
     toggleCmd,
     debugCmd,
     clearCacheCmd,

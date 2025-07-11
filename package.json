@@ -1,5 +1,5 @@
 {
-  "name": "copycatBundler",
+  "name": "CopyCatBundler",
   "displayName": "CopyCat Bundler",
   "description": "Easily bundle files for LLM context windows.",
   "version": "0.0.8",
@@ -23,17 +23,17 @@
     "configuration": {
       "title": "CopyCat",
       "properties": {
-        "contextBundler.showIgnoredNodes": {
+        "copyCatBundler.showIgnoredNodes": {
           "type": "boolean",
           "default": false,
           "description": "Whether to show ignored files and folders in the tree view. When enabled, ignored items will be displayed but greyed out."
         },
-        "contextBundler.systemPrompt": {
+        "copyCatBundler.systemPrompt": {
           "type": "string",
-          "default": "",
+          "default": "You are a senior software architect and planning expert. Your role is to analyze the provided codebase and user request, then generate a comprehensive, detailed step-by-step plan that an AI coding agent can follow to accomplish the task.\n\nYour plan must include:\n1. **Context Analysis**: Summarize the relevant codebase structure, patterns, and technologies\n2. **Objective Breakdown**: Clearly define what needs to be accomplished\n3. **Detailed Steps**: Provide specific, actionable steps with file paths, function names, and implementation details\n4. **Dependencies**: Identify any new dependencies, imports, or setup requirements\n5. **Testing Strategy**: Suggest how to verify the implementation works correctly\n6. **Edge Cases**: Consider potential issues and how to handle them\n\nRemember: The coding agent will only have access to the files you've selected, so provide all necessary context and be extremely specific about what needs to be done.",
           "description": "A system prompt prepended to every request when using Copy to Clipboard with Prompt. Helps guide the LLM on how to interpret the request."
         },
-        "contextBundler.defaultIgnorePatterns": {
+        "copyCatBundler.defaultIgnorePatterns": {
           "type": "array",
           "items": {
             "type": "string"
@@ -206,14 +206,14 @@
           ],
           "description": "Default file patterns to ignore. These patterns are applied in addition to .gitignore and .contextignore rules. Patterns follow the same syntax as .gitignore files."
         },
-        "contextBundler.fileTreeMode": {
+        "copyCatBundler.fileTreeMode": {
           "type": "string",
           "enum": [
             "full",
             "relevant",
             "none"
           ],
-          "default": "full",
+          "default": "relevant",
           "description": "Controls how the file tree is included when copying files to clipboard. 'full' includes the complete project structure, 'relevant' includes only files and folders that are part of the user's selection, and 'none' excludes the file tree entirely."
         }
       }
@@ -221,7 +221,7 @@
     "views": {
       "explorer": [
         {
-          "id": "contextBundlerView",
+          "id": "copyCatBundlerView",
           "name": "CopyCat",
           "type": "tree"
         }
@@ -239,13 +239,14 @@
         "icon": "$(comment)"
       },
       {
-        "command": "copycat.toggleFileTreeMode",
-        "title": "CopyCat: Toggle File Tree Mode",
+        "command": "copycat.setFileTreeMode",
+        "title": "CopyCat: Set File Tree Mode",
         "icon": "$(list-tree)"
       },
       {
-        "command": "copycat.setFileTreeMode",
-        "title": "CopyCat: Set File Tree Mode"
+        "command": "copycat.setSystemPrompt",
+        "title": "CopyCat: Set System Prompt",
+        "icon": "$(gear)"
       },
       {
         "command": "copycat.toggleNode",
@@ -260,12 +261,17 @@
       "view/title": [
         {
           "command": "copycat.copyToClipboard",
-          "when": "view == contextBundlerView",
+          "when": "view == copyCatBundlerView",
           "group": "navigation"
         },
         {
-          "command": "copycat.toggleFileTreeMode",
-          "when": "view == contextBundlerView",
+          "command": "copycat.setFileTreeMode",
+          "when": "view == copyCatBundlerView",
+          "group": "navigation"
+        },
+        {
+          "command": "copycat.setSystemPrompt",
+          "when": "view == copyCatBundlerView",
           "group": "navigation"
         }
       ]
