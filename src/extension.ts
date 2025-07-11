@@ -1,6 +1,7 @@
 import * as vscode from "vscode";
 
-import { ClipboardHandler } from "./utils/ClipboardHandler";
+import { ClipboardHandler, FileTreeMode } from "./utils/ClipboardHandler";
+
 import { ContextTreeProvider } from "./tree/ContextTreeProvider";
 import { IgnoreManager } from "./utils/IgnoreManager";
 import { TokenFormatter } from "./utils/TokenFormatter";
@@ -100,6 +101,93 @@ export function activate(context: vscode.ExtensionContext) {
           selected,
           prompt,
           systemPrompt
+        );
+      }
+    }
+  );
+
+  // File tree mode commands
+  const toggleFileTreeModeCmd = vscode.commands.registerCommand(
+    "copycat.toggleFileTreeMode",
+    async () => {
+      const config = vscode.workspace.getConfiguration("contextBundler");
+      const currentMode = config.get<FileTreeMode>("fileTreeMode", "full");
+
+      // Cycle through modes: full -> relevant -> none -> full
+      const modes: FileTreeMode[] = ["full", "relevant", "none"];
+      const currentIndex = modes.indexOf(currentMode);
+      const nextIndex = (currentIndex + 1) % modes.length;
+      const newMode = modes[nextIndex];
+
+      await config.update(
+        "fileTreeMode",
+        newMode,
+        vscode.ConfigurationTarget.Workspace
+      );
+
+      const modeText =
+        newMode === "full"
+          ? "Full Tree"
+          : newMode === "relevant"
+          ? "Relevant Tree"
+          : "No Tree";
+
+      vscode.window.showInformationMessage(
+        `File tree mode set to: ${modeText}`
+      );
+    }
+  );
+
+  const setFileTreeModeCmd = vscode.commands.registerCommand(
+    "copycat.setFileTreeMode",
+    async () => {
+      const config = vscode.workspace.getConfiguration("contextBundler");
+      const currentMode = config.get<FileTreeMode>("fileTreeMode", "full");
+
+      const mode = await vscode.window.showQuickPick(
+        [
+          {
+            label: "Full Tree",
+            description: "Include complete project structure",
+            value: "full" as FileTreeMode,
+          },
+          {
+            label: "Relevant Tree",
+            description: "Include only selected files and folders",
+            value: "relevant" as FileTreeMode,
+          },
+          {
+            label: "No Tree",
+            description: "Exclude file tree entirely",
+            value: "none" as FileTreeMode,
+          },
+        ],
+        {
+          placeHolder: `Current: ${
+            currentMode === "full"
+              ? "Full Tree"
+              : currentMode === "relevant"
+              ? "Relevant Tree"
+              : "No Tree"
+          }`,
+          canPickMany: false,
+        }
+      );
+
+      if (mode) {
+        await config.update(
+          "fileTreeMode",
+          mode.value,
+          vscode.ConfigurationTarget.Workspace
+        );
+        const modeText =
+          mode.value === "full"
+            ? "Full Tree"
+            : mode.value === "relevant"
+            ? "Relevant Tree"
+            : "No Tree";
+        vscode.window.showInformationMessage(
+          `File tree mode set to: ${modeText}`
         );
       }
     }
@@ -225,6 +313,8 @@ export function activate(context: vscode.ExtensionContext) {
   context.subscriptions.push(
     copyCmd,
     copyWithPromptCmd,
+    toggleFileTreeModeCmd,
+    setFileTreeModeCmd,
     toggleCmd,
     debugCmd,
     clearCacheCmd,

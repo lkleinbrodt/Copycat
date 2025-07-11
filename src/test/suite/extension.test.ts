@@ -3,6 +3,8 @@ import * as fs from "fs";
 import * as path from "path";
 import * as vscode from "vscode";
 
+import { ClipboardHandler, FileTreeMode } from "../../utils/ClipboardHandler";
+
 import { ContextNode } from "../../tree/ContextNode";
 import { ContextTreeProvider } from "../../tree/ContextTreeProvider";
 
@@ -22,6 +24,40 @@ suite("Extension Test Suite", () => {
     assert.ok(commands.includes("copycat.copyToClipboard"));
     assert.ok(commands.includes("copycat.copyToClipboardWithPrompt"));
     assert.ok(commands.includes("copycat.toggleNode"));
+    assert.ok(commands.includes("copycat.toggleFileTreeMode"));
+    assert.ok(commands.includes("copycat.setFileTreeMode"));
+  });
+
+  test("File tree mode configuration works", async () => {
+    const config = vscode.workspace.getConfiguration("contextBundler");
+
+    // Test default value
+    const defaultMode = config.get<FileTreeMode>("fileTreeMode", "full");
+    assert.strictEqual(
+      defaultMode,
+      "full",
+      "Default file tree mode should be 'full'"
+    );
+
+    // Test setting a new value
+    await config.update(
+      "fileTreeMode",
+      "relevant",
+      vscode.ConfigurationTarget.Workspace
+    );
+    const newMode = config.get<FileTreeMode>("fileTreeMode", "full");
+    assert.strictEqual(
+      newMode,
+      "relevant",
+      "File tree mode should be updated to 'relevant'"
+    );
+
+    // Reset to default
+    await config.update(
+      "fileTreeMode",
+      "full",
+      vscode.ConfigurationTarget.Workspace
+    );
   });
 
   test("Directory selection should recursively select all files", async function () {

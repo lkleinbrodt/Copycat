@@ -3,10 +3,17 @@ import * as path from "path";
 import * as vscode from "vscode";
 
 import { ContextNode } from "../tree/ContextNode";
+import { IgnoreManager } from "./IgnoreManager";
 import { promises as fsPromises } from "fs";
 
+export type FileTreeMode = "full" | "relevant" | "none";
+
 export class ClipboardHandler {
-  constructor(private workspaceRoot: string) {}
+  private ignoreManager: IgnoreManager;
+
+  constructor(private workspaceRoot: string) {
+    this.ignoreManager = new IgnoreManager(workspaceRoot);
+  }
 
   private getLanguageHint(filePath: string): string {
     const ext = path.extname(filePath).toLowerCase();
@@ -255,13 +262,24 @@ export class ClipboardHandler {
     return languageMap[ext] || "";
   }
 
-  private async generateFileTree(): Promise<string> {
+  private async generateFileTree(
+    mode: FileTreeMode,
+    selectedNodes?: ContextNode[]
+  ): Promise<string> {
+    if (mode === "none") {
+      return "";
+    }
+
     const treeLines: string[] = [];
     const projectName = path.basename(this.workspaceRoot);
 
     treeLines.push(`${projectName}/`);
 
-    await this.buildTreeRecursive(this.workspaceRoot, "", treeLines, 0);
+    if (mode === "full") {
+      await this.buildTreeRecursive(this.workspaceRoot, "", treeLines, 0);
+    } else if (mode === "relevant" && selectedNodes) {
+      await this.buildRelevantTree(selectedNodes, treeLines);
+    }
 
     return treeLines.join("\n");
   }
@@ -281,26 +299,52 @@ export class ClipboardHandler {
         const aStat = fs.statSync(aPath);
         const bStat = fs.statSync(bPath);
 
-        if (aStat.isDirectory() && !bStat.isDirectory()) {return -1;}
-        if (!aStat.isDirectory() && bStat.isDirectory()) {return 1;}
+        if (aStat.isDirectory() && !bStat.isDirectory()) {
+          return -1;
+        }
+        if (!aStat.isDirectory() && bStat.isDirectory()) {
+          return 1;
+        }
         return a.localeCompare(b);
       });
 
-      for (let i = 0; i < sortedEntries.length; i++) {
-        const entry = sortedEntries[i];
+      // Filter out ignored entries first
+      const nonIgnoredEntries: string[] = [];
+      for (const entry of sortedEntries) {
+        const entryPath = path.join(currentPath, entry);
+        if (!this.ignoreManager.isIgnored(entryPath)) {
+          nonIgnoredEntries.push(entry);
+        }
+      }
+
+      // For directories, check if they have any non-ignored children
+      const visibleEntries: string[] = [];
+      for (const entry of nonIgnoredEntries) {
+        const entryPath = path.join(currentPath, entry);
+        const stat = await fsPromises.stat(entryPath);
+
+        if (stat.isDirectory()) {
+          // Check if directory has any non-ignored children
+          const hasNonIgnoredChildren = await this.hasNonIgnoredChildren(
+            entryPath
+          );
+          if (hasNonIgnoredChildren) {
+            visibleEntries.push(entry);
+          }
+        } else {
+          visibleEntries.push(entry);
+        }
+      }
+
+      for (let i = 0; i < visibleEntries.length; i++) {
+        const entry = visibleEntries[i];
         const entryPath = path.join(currentPath, entry);
         const entryRelativePath = relativePath
           ? path.join(relativePath, entry)
           : entry;
 
-        // Check if this entry should be ignored
-        const isIgnored = await this.isIgnored(entryPath);
-        if (isIgnored) {
-          continue;
-        }
-
         const stat = await fsPromises.stat(entryPath);
-        const isLast = i === sortedEntries.length - 1;
+        const isLast = i === visibleEntries.length - 1;
         const prefix = this.getTreePrefix(depth, isLast);
 
         if (stat.isDirectory()) {
@@ -320,94 +364,127 @@ export class ClipboardHandler {
     }
   }
 
+  private async buildRelevantTree(
+    selectedNodes: ContextNode[],
+    treeLines: string[]
+  ): Promise<void> {
+    // Get all unique paths that need to be shown
+    const relevantPaths = new Set<string>();
+
+    for (const node of selectedNodes) {
+      const relativePath = path.relative(
+        this.workspaceRoot,
+        node.resourceUri.fsPath
+      );
+      const pathParts = relativePath.split(path.sep);
+
+      // Add all parent directories
+      let currentPath = "";
+      for (const part of pathParts) {
+        currentPath = currentPath ? path.join(currentPath, part) : part;
+        relevantPaths.add(currentPath);
+      }
+    }
+
+    // Sort paths to maintain tree structure
+    const sortedPaths = Array.from(relevantPaths).sort((a, b) => {
+      const aParts = a.split(path.sep);
+      const bParts = b.split(path.sep);
+
+      // Sort by depth first, then alphabetically
+      if (aParts.length !== bParts.length) {
+        return aParts.length - bParts.length;
+      }
+
+      return a.localeCompare(b);
+    });
+
+    // Build the tree structure
+    for (const relativePath of sortedPaths) {
+      const fullPath = path.join(this.workspaceRoot, relativePath);
+      const stat = await fsPromises.stat(fullPath);
+      const pathParts = relativePath.split(path.sep);
+      const depth = pathParts.length - 1;
+
+      // Determine if this is the last item at this depth
+      const isLast = this.isLastAtDepth(sortedPaths, relativePath, depth);
+      const prefix = this.getTreePrefix(depth, isLast);
+
+      if (stat.isDirectory()) {
+        treeLines.push(`${prefix}${pathParts[pathParts.length - 1]}/`);
+      } else {
+        treeLines.push(`${prefix}${pathParts[pathParts.length - 1]}`);
+      }
+    }
+  }
+
+  private isLastAtDepth(
+    paths: string[],
+    currentPath: string,
+    depth: number
+  ): boolean {
+    const currentParts = currentPath.split(path.sep);
+
+    for (let i = paths.length - 1; i >= 0; i--) {
+      const pathItem = paths[i];
+      const parts = pathItem.split(path.sep);
+
+      if (parts.length === depth + 1) {
+        // Found another item at the same depth
+        return pathItem === currentPath;
+      }
+    }
+
+    return true;
+  }
+
+  private async hasNonIgnoredChildren(dirPath: string): Promise<boolean> {
+    try {
+      const entries = await fsPromises.readdir(dirPath);
+
+      for (const entry of entries) {
+        const entryPath = path.join(dirPath, entry);
+
+        if (!this.ignoreManager.isIgnored(entryPath)) {
+          const stat = await fsPromises.stat(entryPath);
+
+          if (stat.isFile()) {
+            return true; // Found a non-ignored file
+          } else if (stat.isDirectory()) {
+            // Recursively check if this subdirectory has non-ignored children
+            const hasChildren = await this.hasNonIgnoredChildren(entryPath);
+            if (hasChildren) {
+              return true;
+            }
+          }
+        }
+      }
+
+      return false; // No non-ignored children found
+    } catch (error) {
+      console.warn(`Error checking children of ${dirPath}:`, error);
+      return false;
+    }
+  }
+
   private getTreePrefix(depth: number, isLast: boolean): string {
     const indent = "    ".repeat(depth);
     const connector = isLast ? "└── " : "├── ";
     return indent + connector;
   }
 
-  private async isIgnored(filePath: string): Promise<boolean> {
-    try {
-      // Simple ignore check - we'll use the same patterns as the extension
-      const relativePath = path.relative(this.workspaceRoot, filePath);
-
-      // Check for common ignore patterns
-      const ignorePatterns = [
-        /^\.git\//,
-        /^node_modules\//,
-        /^\.vscode\//,
-        /^out\//,
-        /^dist\//,
-        /^build\//,
-        /^\.DS_Store$/,
-        /^Thumbs\.db$/,
-        /\.log$/,
-        /\.tmp$/,
-        /\.temp$/,
-      ];
-
-      for (const pattern of ignorePatterns) {
-        if (pattern.test(relativePath)) {
-          return true;
-        }
-      }
-
-      // Check .gitignore if it exists
-      const gitignorePath = path.join(this.workspaceRoot, ".gitignore");
-      try {
-        const gitignoreContent = await fsPromises.readFile(
-          gitignorePath,
-          "utf-8"
-        );
-        const patterns = gitignoreContent
-          .split("\n")
-          .filter((line) => line.trim() && !line.startsWith("#"));
-
-        for (const pattern of patterns) {
-          if (this.matchesPattern(relativePath, pattern)) {
-            return true;
-          }
-        }
-      } catch {
-        // .gitignore doesn't exist, continue
-      }
-
-      return false;
-    } catch (error) {
-      console.warn(`Error checking if ${filePath} is ignored:`, error);
-      return false;
-    }
-  }
-
-  private matchesPattern(filePath: string, pattern: string): boolean {
-    // Simple pattern matching for common gitignore patterns
-    const cleanPattern = pattern.trim();
-    if (!cleanPattern) {return false;}
-
-    // Handle directory patterns (ending with /)
-    if (cleanPattern.endsWith("/")) {
-      const dirPattern = cleanPattern.slice(0, -1);
-      return filePath.includes(dirPattern + "/") || filePath === dirPattern;
-    }
-
-    // Handle wildcard patterns
-    if (cleanPattern.includes("*")) {
-      const regexPattern = cleanPattern
-        .replace(/\./g, "\\.")
-        .replace(/\*/g, ".*");
-      const regex = new RegExp(regexPattern);
-      return regex.test(filePath);
-    }
-
-    // Exact match
-    return filePath === cleanPattern || filePath.endsWith("/" + cleanPattern);
-  }
-
   async bundleAndCopyToClipboard(
     selectedNodes: ContextNode[],
     prompt?: string,
-    systemPrompt?: string
+    systemPrompt?: string,
+    fileTreeMode?: FileTreeMode
   ): Promise<void> {
+    // Get file tree mode from settings if not provided
+    if (!fileTreeMode) {
+      const config = vscode.workspace.getConfiguration("contextBundler");
+      fileTreeMode = config.get<FileTreeMode>("fileTreeMode", "full");
+    }
+
     let bundled = "";
 
     // Add introduction message
@@ -415,11 +492,14 @@ export class ClipboardHandler {
     bundled +=
       "This is a codebase with the following structure. The selected files are provided below with their full contents.\n\n";
 
-    // Add file tree
-    bundled += "## File Structure\n\n";
-    bundled += "```\n";
-    bundled += await this.generateFileTree();
-    bundled += "\n```\n\n";
+    // Add file tree based on mode
+    const fileTree = await this.generateFileTree(fileTreeMode, selectedNodes);
+    if (fileTree) {
+      bundled += "## File Structure\n\n";
+      bundled += "```\n";
+      bundled += fileTree;
+      bundled += "\n```\n\n";
+    }
 
     // Add selected files
     bundled += "## Selected Files\n\n";
@@ -457,10 +537,18 @@ export class ClipboardHandler {
     }
 
     await vscode.env.clipboard.writeText(bundled);
+
+    const modeText =
+      fileTreeMode === "none"
+        ? " (no tree)"
+        : fileTreeMode === "relevant"
+        ? " (relevant tree)"
+        : " (full tree)";
+
     vscode.window.showInformationMessage(
       `Copied ${selectedNodes.length} files to clipboard!${
         prompt ? " (with prompt)" : ""
-      }`
+      }${modeText}`
     );
   }
 }
