@@ -52,17 +52,17 @@ export function activate(context: vscode.ExtensionContext) {
 
   const copyCmd = vscode.commands.registerCommand(
     "copycat.copyToClipboard",
-    () => {
+    async () => {
       if (!clipboardHandler) {
         vscode.window.showWarningMessage("No workspace opened.");
         return;
       }
-      const selected = treeProvider.getSelectedNodes();
+      const selected = await treeProvider.getSelectedNodes();
       if (selected.length === 0) {
         vscode.window.showWarningMessage("No files selected.");
         return;
       }
-      clipboardHandler.bundleAndCopyToClipboard(selected);
+      await clipboardHandler.bundleAndCopyToClipboard(selected);
     }
   );
 
@@ -73,7 +73,7 @@ export function activate(context: vscode.ExtensionContext) {
         vscode.window.showWarningMessage("No workspace opened.");
         return;
       }
-      const selected = treeProvider.getSelectedNodes();
+      const selected = await treeProvider.getSelectedNodes();
       if (selected.length === 0) {
         vscode.window.showWarningMessage("No files selected.");
         return;
@@ -97,7 +97,7 @@ export function activate(context: vscode.ExtensionContext) {
       const systemPrompt = config.get<string>("systemPrompt", "");
 
       if (prompt) {
-        clipboardHandler.bundleAndCopyToClipboard(
+        await clipboardHandler.bundleAndCopyToClipboard(
           selected,
           prompt,
           systemPrompt

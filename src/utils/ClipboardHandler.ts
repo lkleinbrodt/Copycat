@@ -1,4 +1,5 @@
 import * as fs from "fs";
+import * as languageMap from "./languageMap.json";
 import * as path from "path";
 import * as vscode from "vscode";
 
@@ -17,249 +18,7 @@ export class ClipboardHandler {
 
   private getLanguageHint(filePath: string): string {
     const ext = path.extname(filePath).toLowerCase();
-
-    // Map of common file extensions to language hints (supporting ~20 most common types)
-    const languageMap: { [key: string]: string } = {
-      // Web technologies
-      ".js": "javascript",
-      ".jsx": "javascript",
-      ".ts": "typescript",
-      ".tsx": "typescript",
-      ".html": "html",
-      ".css": "css",
-      ".scss": "scss",
-      ".sass": "sass",
-      ".less": "less",
-
-      // Python
-      ".py": "python",
-      ".pyw": "python",
-
-      // Java
-      ".java": "java",
-
-      // C/C++
-      ".c": "c",
-      ".cpp": "cpp",
-      ".cc": "cpp",
-      ".cxx": "cpp",
-      ".h": "c",
-      ".hpp": "cpp",
-
-      // C#
-      ".cs": "csharp",
-
-      // Go
-      ".go": "go",
-
-      // Rust
-      ".rs": "rust",
-
-      // Ruby
-      ".rb": "ruby",
-
-      // PHP
-      ".php": "php",
-
-      // Swift
-      ".swift": "swift",
-
-      // Kotlin
-      ".kt": "kotlin",
-      ".kts": "kotlin",
-
-      // Scala
-      ".scala": "scala",
-
-      // Shell scripts
-      ".sh": "bash",
-      ".bash": "bash",
-      ".zsh": "bash",
-      ".fish": "bash",
-
-      // PowerShell
-      ".ps1": "powershell",
-
-      // SQL
-      ".sql": "sql",
-
-      // JSON
-      ".json": "json",
-
-      // YAML
-      ".yml": "yaml",
-      ".yaml": "yaml",
-
-      // XML
-      ".xml": "xml",
-
-      // Markdown
-      ".md": "markdown",
-      ".markdown": "markdown",
-
-      // Configuration files
-      ".toml": "toml",
-      ".ini": "ini",
-      ".cfg": "ini",
-      ".conf": "ini",
-
-      // Docker
-      ".dockerfile": "dockerfile",
-      ".dockerignore": "dockerfile",
-
-      // Git
-      ".gitignore": "gitignore",
-      ".gitattributes": "gitattributes",
-
-      // Make
-      ".makefile": "makefile",
-      ".mk": "makefile",
-
-      // R
-      ".r": "r",
-
-      // MATLAB
-      ".m": "matlab",
-
-      // Julia
-      ".jl": "julia",
-
-      // Haskell
-      ".hs": "haskell",
-
-      // F#
-      ".fs": "fsharp",
-      ".fsx": "fsharp",
-
-      // Clojure
-      ".clj": "clojure",
-      ".cljs": "clojurescript",
-
-      // Elixir
-      ".ex": "elixir",
-      ".exs": "elixir",
-
-      // Erlang
-      ".erl": "erlang",
-      ".hrl": "erlang",
-
-      // Lua
-      ".lua": "lua",
-
-      // Perl
-      ".pl": "perl",
-      ".pm": "perl",
-
-      // Dart
-      ".dart": "dart",
-
-      // Nim
-      ".nim": "nim",
-
-      // V
-      ".v": "v",
-
-      // Zig
-      ".zig": "zig",
-
-      // Assembly
-      ".asm": "assembly",
-      ".s": "assembly",
-
-      // Fortran
-      ".f90": "fortran",
-      ".f95": "fortran",
-      ".f03": "fortran",
-
-      // COBOL
-      ".cob": "cobol",
-      ".cbl": "cobol",
-
-      // Ada
-      ".adb": "ada",
-      ".ads": "ada",
-
-      // Prolog
-      ".pro": "prolog",
-
-      // Lisp
-      ".lisp": "lisp",
-      ".lsp": "lisp",
-      ".cl": "lisp",
-
-      // Scheme
-      ".scm": "scheme",
-      ".ss": "scheme",
-
-      // OCaml
-      ".ml": "ocaml",
-      ".mli": "ocaml",
-
-      // Standard ML
-      ".sml": "sml",
-
-      // Clean
-      ".icl": "clean",
-      ".dcl": "clean",
-
-      // Curry
-      ".curry": "curry",
-
-      // Agda
-      ".agda": "agda",
-
-      // Isabelle
-      ".thy": "isabelle",
-
-      // Lean
-      ".lean": "lean",
-
-      // Idris
-      ".idr": "idris",
-
-      // ATS
-      ".dats": "ats",
-      ".sats": "ats",
-
-      // Unison
-      ".u": "unison",
-
-      // Koka
-      ".kk": "koka",
-
-      // Roc
-      ".roc": "roc",
-
-      // Gleam
-      ".gleam": "gleam",
-
-      // Elm
-      ".elm": "elm",
-
-      // PureScript
-      ".purs": "purescript",
-
-      // Reason
-      ".re": "reason",
-      ".rei": "reason",
-
-      // ReScript
-      ".res": "rescript",
-      ".resi": "rescript",
-
-      // CoffeeScript
-      ".coffee": "coffeescript",
-      ".litcoffee": "coffeescript",
-
-      // LiveScript
-      ".ls": "livescript",
-
-      // JavaScript modules
-      ".mjs": "javascript",
-      ".cjs": "javascript",
-    };
-
-    return languageMap[ext] || "";
+    return (languageMap as { [key: string]: string })[ext] || "";
   }
 
   private async generateFileTree(
@@ -292,38 +51,49 @@ export class ClipboardHandler {
   ): Promise<void> {
     try {
       const entries = await fsPromises.readdir(currentPath);
-      const sortedEntries = entries.sort((a, b) => {
-        // Directories first, then files, both alphabetically
-        const aPath = path.join(currentPath, a);
-        const bPath = path.join(currentPath, b);
-        const aStat = fs.statSync(aPath);
-        const bStat = fs.statSync(bPath);
 
-        if (aStat.isDirectory() && !bStat.isDirectory()) {
-          return -1;
-        }
-        if (!aStat.isDirectory() && bStat.isDirectory()) {
-          return 1;
-        }
-        return a.localeCompare(b);
-      });
+      // Pre-fetch all stats asynchronously
+      const entriesWithStats = await Promise.all(
+        entries.map(async (entry) => {
+          const entryPath = path.join(currentPath, entry);
+          try {
+            return { name: entry, stat: await fsPromises.stat(entryPath) };
+          } catch {
+            return null; // Handle errors, e.g., broken symlinks
+          }
+        })
+      );
+
+      // Sort entries: directories first, then files, both alphabetically
+      const sortedEntries = entriesWithStats
+        .filter((e) => e !== null) // Filter out failed stats
+        .sort((a, b) => {
+          const aStat = a!.stat;
+          const bStat = b!.stat;
+          if (aStat.isDirectory() && !bStat.isDirectory()) {
+            return -1;
+          }
+          if (!aStat.isDirectory() && bStat.isDirectory()) {
+            return 1;
+          }
+          return a!.name.localeCompare(b!.name);
+        });
 
       // Filter out ignored entries first
-      const nonIgnoredEntries: string[] = [];
+      const nonIgnoredEntries: { name: string; stat: fs.Stats }[] = [];
       for (const entry of sortedEntries) {
-        const entryPath = path.join(currentPath, entry);
+        const entryPath = path.join(currentPath, entry!.name);
         if (!this.ignoreManager.isIgnored(entryPath)) {
-          nonIgnoredEntries.push(entry);
+          nonIgnoredEntries.push({ name: entry!.name, stat: entry!.stat });
         }
       }
 
       // For directories, check if they have any non-ignored children
-      const visibleEntries: string[] = [];
+      const visibleEntries: { name: string; stat: fs.Stats }[] = [];
       for (const entry of nonIgnoredEntries) {
-        const entryPath = path.join(currentPath, entry);
-        const stat = await fsPromises.stat(entryPath);
+        const entryPath = path.join(currentPath, entry.name);
 
-        if (stat.isDirectory()) {
+        if (entry.stat.isDirectory()) {
           // Check if directory has any non-ignored children
           const hasNonIgnoredChildren = await this.hasNonIgnoredChildren(
             entryPath
@@ -338,17 +108,16 @@ export class ClipboardHandler {
 
       for (let i = 0; i < visibleEntries.length; i++) {
         const entry = visibleEntries[i];
-        const entryPath = path.join(currentPath, entry);
+        const entryPath = path.join(currentPath, entry.name);
         const entryRelativePath = relativePath
-          ? path.join(relativePath, entry)
-          : entry;
+          ? path.join(relativePath, entry.name)
+          : entry.name;
 
-        const stat = await fsPromises.stat(entryPath);
         const isLast = i === visibleEntries.length - 1;
         const prefix = this.getTreePrefix(depth, isLast);
 
-        if (stat.isDirectory()) {
-          treeLines.push(`${prefix}${entry}/`);
+        if (entry.stat.isDirectory()) {
+          treeLines.push(`${prefix}${entry.name}/`);
           await this.buildTreeRecursive(
             entryPath,
             entryRelativePath,
@@ -356,7 +125,7 @@ export class ClipboardHandler {
             depth + 1
           );
         } else {
-          treeLines.push(`${prefix}${entry}`);
+          treeLines.push(`${prefix}${entry.name}`);
         }
       }
     } catch (error) {
@@ -502,8 +271,7 @@ export class ClipboardHandler {
         bundled +=
           "*Note: This tree shows only a subset of the project's files and folders, as requested by the user.*\n\n";
       } else if (fileTreeMode === "full") {
-        bundled +=
-          "*Note: This tree shows the complete project structure.*\n\n";
+        // Do nothing
       }
 
       bundled += "```\n";

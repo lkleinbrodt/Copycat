@@ -2,7 +2,7 @@
   "name": "CopyCatBundler",
   "displayName": "CopyCat Bundler",
   "description": "Easily bundle files for LLM context windows.",
-  "version": "0.0.8",
+  "version": "0.0.9",
   "publisher": "LandonKleinbrodt",
   "icon": "images/icon.png",
   "repository": {

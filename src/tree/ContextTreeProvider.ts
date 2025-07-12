@@ -361,7 +361,7 @@ export class ContextTreeProvider
     return undefined;
   }
 
-  getSelectedNodes(): ContextNode[] {
+  getSelectedNodes(): Promise<ContextNode[]> {
     const nodes: ContextNode[] = [];
 
     // For clipboard purposes, we want all individual files that are selected
@@ -379,6 +379,7 @@ export class ContextTreeProvider
 
     // Additionally, for selected directories, we need to recursively discover
     // all files within them, even if they haven't been loaded into the tree yet
+    const discoverPromises: Promise<ContextNode[]>[] = [];
     for (const node of this.allNodes.values()) {
       if (
         node.selectionState === "checked" &&
@@ -386,40 +387,51 @@ export class ContextTreeProvider
         !node.isIgnored
       ) {
         // Recursively discover all files in this directory
-        const discoveredFiles = this.discoverFilesInDirectory(
-          node.resourceUri.fsPath
+        discoverPromises.push(
+          this.discoverFilesInDirectory(node.resourceUri.fsPath)
         );
-        nodes.push(...discoveredFiles);
       }
     }
 
-    return nodes;
+    return Promise.all(discoverPromises).then((discoveredFilesArrays) => {
+      // De-duplicate files that might have been added individually
+      for (const discoveredFiles of discoveredFilesArrays) {
+        for (const file of discoveredFiles) {
+          if (
+            !nodes.some((n) => n.resourceUri.fsPath === file.resourceUri.fsPath)
+          ) {
+            nodes.push(file);
+          }
+        }
+      }
+      return nodes;
+    });
   }
 
   /**
    * Recursively discover all files within a directory, respecting ignore rules
    */
-  private discoverFilesInDirectory(dirPath: string): ContextNode[] {
+  private async discoverFilesInDirectory(
+    dirPath: string
+  ): Promise<ContextNode[]> {
     const files: ContextNode[] = [];
 
     try {
-      // Use synchronous file system operations for discovery
-      const discoverRecursive = (currentPath: string): void => {
-        const entries = fs.readdirSync(currentPath);
+      // Use an async recursive function
+      const discoverRecursive = async (currentPath: string): Promise<void> => {
+        const entries = await fs.promises.readdir(currentPath);
 
         for (const entry of entries) {
           const entryPath = path.join(currentPath, entry);
 
-          // Skip ignored files
           if (this.ignoreManager && this.ignoreManager.isIgnored(entryPath)) {
             continue;
           }
 
-          const stat = fs.statSync(entryPath);
+          const stat = await fs.promises.stat(entryPath);
 
           if (stat.isDirectory()) {
-            // Recursively discover files in subdirectories
-            discoverRecursive(entryPath);
+            await discoverRecursive(entryPath);
           } else {
             // Create a temporary ContextNode for this file
             const uri = vscode.Uri.file(entryPath);
@@ -442,7 +454,7 @@ export class ContextTreeProvider
         }
       };
 
-      discoverRecursive(dirPath);
+      await discoverRecursive(dirPath);
     } catch (error) {
       console.warn(`Error discovering files in directory ${dirPath}:`, error);
     }

@@ -93,11 +93,9 @@ suite("Ignore Logic & Show Ignored Nodes", () => {
   test("Ignored files are hidden when showIgnoredNodes is false", async () => {
     configStub.returns({ get: () => false } as any);
 
-    // Get root children
-    const rootUri = vscode.Uri.file(workspaceRoot);
-    const rootStat = await vscode.workspace.fs.stat(rootUri);
-    const rootNode = await (provider as any).createNode(rootUri, rootStat);
-    const children = await (provider as any).getDirectoryChildren(rootNode);
+    // Get root children using public API
+    const [rootNode] = await provider.getChildren();
+    const children = await provider.getChildren(rootNode);
 
     // Debug: log the actual setting value and what we got
     console.log(
@@ -136,11 +134,9 @@ suite("Ignore Logic & Show Ignored Nodes", () => {
   test("Ignored files are shown and greyed out when showIgnoredNodes is true", async () => {
     configStub.returns({ get: () => true } as any);
 
-    // Get root children
-    const rootUri = vscode.Uri.file(workspaceRoot);
-    const rootStat = await vscode.workspace.fs.stat(rootUri);
-    const rootNode = await (provider as any).createNode(rootUri, rootStat);
-    const children = await (provider as any).getDirectoryChildren(rootNode);
+    // Get root children using public API
+    const [rootNode] = await provider.getChildren();
+    const children = await provider.getChildren(rootNode);
 
     // Should contain all files, but ignored ones should be marked
     const childNames = children.map((child: ContextNode) => child.label);
@@ -191,11 +187,9 @@ suite("Ignore Logic & Show Ignored Nodes", () => {
   test("Ignored files are never selected, even by parent selection", async () => {
     configStub.returns({ get: () => true } as any);
 
-    // Get root children
-    const rootUri = vscode.Uri.file(workspaceRoot);
-    const rootStat = await vscode.workspace.fs.stat(rootUri);
-    const rootNode = await (provider as any).createNode(rootUri, rootStat);
-    const children = await (provider as any).getDirectoryChildren(rootNode);
+    // Get root children using public API
+    const [rootNode] = await provider.getChildren();
+    const children = await provider.getChildren(rootNode);
 
     // Find visible and ignored files
     const visibleFile = children.find(
@@ -208,8 +202,8 @@ suite("Ignore Logic & Show Ignored Nodes", () => {
     assert.ok(visibleFile, "visible.txt should exist");
     assert.ok(ignoredFile, "ignored.txt should exist");
 
-    // Set root to checked state
-    (provider as any).setNodeState(rootNode, "checked");
+    // Set root to checked state using public API
+    provider.toggleNode(rootNode);
 
     // Check that visible file is selected but ignored file is not
     assert.strictEqual(
@@ -240,11 +234,9 @@ suite("Ignore Logic & Show Ignored Nodes", () => {
   test("Non-ignored files are always selectable", async () => {
     configStub.returns({ get: () => true } as any);
 
-    // Get root children
-    const rootUri = vscode.Uri.file(workspaceRoot);
-    const rootStat = await vscode.workspace.fs.stat(rootUri);
-    const rootNode = await (provider as any).createNode(rootUri, rootStat);
-    const children = await (provider as any).getDirectoryChildren(rootNode);
+    // Get root children using public API
+    const [rootNode] = await provider.getChildren();
+    const children = await provider.getChildren(rootNode);
 
     const visibleFile = children.find(
       (child: ContextNode) => child.label === "visible.txt"
@@ -263,11 +255,9 @@ suite("Ignore Logic & Show Ignored Nodes", () => {
   test("Ignored files cannot be toggled", async () => {
     configStub.returns({ get: () => true } as any);
 
-    // Get root children
-    const rootUri = vscode.Uri.file(workspaceRoot);
-    const rootStat = await vscode.workspace.fs.stat(rootUri);
-    const rootNode = await (provider as any).createNode(rootUri, rootStat);
-    const children = await (provider as any).getDirectoryChildren(rootNode);
+    // Get root children using public API
+    const [rootNode] = await provider.getChildren();
+    const children = await provider.getChildren(rootNode);
 
     const ignoredFile = children.find(
       (child: ContextNode) => child.label === "ignored.txt"
@@ -317,11 +307,9 @@ suite("Ignore Logic & Show Ignored Nodes", () => {
     // Create a new provider with the updated config
     const newProvider = new ContextTreeProvider(workspaceRoot);
 
-    // Get root children
-    const rootUri = vscode.Uri.file(workspaceRoot);
-    const rootStat = await vscode.workspace.fs.stat(rootUri);
-    const rootNode = await (newProvider as any).createNode(rootUri, rootStat);
-    const children = await (newProvider as any).getDirectoryChildren(rootNode);
+    // Get root children using public API
+    const [rootNode] = await newProvider.getChildren();
+    const children = await newProvider.getChildren(rootNode);
 
     // Should not contain files that match default ignore patterns
     const childNames = children.map((child: ContextNode) => child.label);
