@@ -24,21 +24,21 @@ export class ContextTreeProvider
 
   private allNodes: Map<string, ContextNode> = new Map();
   private selectionCache: Map<string, SelectionState> = new Map();
-  private ignoreManager?: IgnoreManager;
-  private tokenManager?: TokenManager;
+  private tokenManagers: Map<string, TokenManager>;
+  private ignoreManagers: Map<string, IgnoreManager>;
+  private workspaceFolders: readonly vscode.WorkspaceFolder[] | undefined;
 
   constructor(
-    private workspaceRoot: string | undefined,
-    tokenManager?: TokenManager
+    workspaceFolders: readonly vscode.WorkspaceFolder[] | undefined,
+    tokenManagers: Map<string, TokenManager>,
+    ignoreManagers: Map<string, IgnoreManager>
   ) {
-    if (workspaceRoot) {
-      this.ignoreManager = new IgnoreManager(workspaceRoot);
-    }
-    this.tokenManager = tokenManager;
-
-    // Listen for token updates and refresh affected nodes
-    if (this.tokenManager) {
-      this.tokenManager.onTokensUpdated((updatedPaths) => {
+    this.workspaceFolders = workspaceFolders;
+    this.tokenManagers = tokenManagers;
+    this.ignoreManagers = ignoreManagers;
+    // Listen for token updates and refresh affected nodes for all managers
+    for (const manager of this.tokenManagers.values()) {
+      manager.onTokensUpdated((updatedPaths) => {
         this.onTokensUpdated(updatedPaths);
       });
     }
@@ -89,12 +89,18 @@ export class ContextTreeProvider
     }
 
     // Get updated token count from TokenManager
-    if (this.tokenManager) {
-      const tokenCount = this.tokenManager.getTokenCount(
-        element.resourceUri.fsPath
-      );
-      if (tokenCount !== undefined) {
-        element.tokenCount = tokenCount;
+    if (
+      element.workspaceRoot &&
+      this.tokenManagers.has(element.workspaceRoot)
+    ) {
+      const tokenManager = this.tokenManagers.get(element.workspaceRoot);
+      if (tokenManager) {
+        const tokenCount = tokenManager.getTokenCount(
+          element.resourceUri.fsPath
+        );
+        if (tokenCount !== undefined) {
+          element.tokenCount = tokenCount;
+        }
       }
     }
 
@@ -131,16 +137,28 @@ export class ContextTreeProvider
   }
 
   async getChildren(element?: ContextNode): Promise<ContextNode[]> {
-    if (!this.workspaceRoot) {
+    if (!this.workspaceFolders) {
       vscode.window.showInformationMessage("No folder or workspace opened");
       return [];
     }
 
     if (!element) {
-      const rootUri = vscode.Uri.file(this.workspaceRoot);
-      const rootStat = await vscode.workspace.fs.stat(rootUri);
-      const rootNode = await this.createNode(rootUri, rootStat);
-      return [rootNode];
+      // ROOT LEVEL: Create a node for each workspace folder
+      const rootNodes: ContextNode[] = [];
+      for (const folder of this.workspaceFolders) {
+        const rootUri = folder.uri;
+        const rootStat = await vscode.workspace.fs.stat(rootUri);
+        const rootNode = await this.createNode(
+          rootUri,
+          rootStat,
+          undefined,
+          folder.uri.fsPath
+        );
+        rootNode.workspaceRoot = folder.uri.fsPath;
+        (rootNode as any).displayName = folder.name;
+        rootNodes.push(rootNode);
+      }
+      return rootNodes;
     }
 
     if (element.fileType === vscode.FileType.Directory) {
@@ -156,8 +174,16 @@ export class ContextTreeProvider
     const nodes: ContextNode[] = [];
     for (const [name, type] of entries) {
       const uri = vscode.Uri.joinPath(parent.resourceUri, name);
-      const isIgnored =
-        this.ignoreManager && this.ignoreManager.isIgnored(uri.fsPath);
+      let isIgnored = false;
+      if (
+        parent.workspaceRoot &&
+        this.ignoreManagers.has(parent.workspaceRoot)
+      ) {
+        isIgnored =
+          this.ignoreManagers
+            .get(parent.workspaceRoot)
+            ?.isIgnored(uri.fsPath) ?? false;
+      }
 
       // Debug logging
       console.log(
@@ -177,18 +203,21 @@ export class ContextTreeProvider
         try {
           const dirEntries = await vscode.workspace.fs.readDirectory(uri);
           let hasNonIgnoredChildren = false;
-
-          for (const [childName, childType] of dirEntries) {
-            const childUri = vscode.Uri.joinPath(uri, childName);
-            const childIsIgnored =
-              this.ignoreManager &&
-              this.ignoreManager.isIgnored(childUri.fsPath);
-            if (!childIsIgnored) {
-              hasNonIgnoredChildren = true;
-              break;
+          if (
+            parent.workspaceRoot &&
+            this.ignoreManagers.has(parent.workspaceRoot)
+          ) {
+            for (const [childName, childType] of dirEntries) {
+              const childUri = vscode.Uri.joinPath(uri, childName);
+              const childIsIgnored = this.ignoreManagers
+                .get(parent.workspaceRoot)
+                ?.isIgnored(childUri.fsPath);
+              if (!childIsIgnored) {
+                hasNonIgnoredChildren = true;
+                break;
+              }
             }
           }
-
           if (!hasNonIgnoredChildren) {
             console.log(
               `Skipping directory with no non-ignored children: ${name}`
@@ -213,40 +242,37 @@ export class ContextTreeProvider
   private async createNode(
     uri: vscode.Uri,
     fileTypeOrStat: vscode.FileType | vscode.FileStat,
-    parent?: ContextNode
+    parent?: ContextNode,
+    workspaceRoot?: string
   ): Promise<ContextNode> {
     const fileType =
       (fileTypeOrStat as vscode.FileStat).type !== undefined
         ? (fileTypeOrStat as vscode.FileStat).type
         : (fileTypeOrStat as vscode.FileType);
     const label = path.basename(uri.fsPath);
-    const node = new ContextNode(uri, label, fileType);
+    const root = workspaceRoot || parent?.workspaceRoot;
+    if (!root) {
+      throw new Error("workspaceRoot must be defined for ContextNode");
+    }
+    const node = new ContextNode(uri, label, fileType, root);
+    node.workspaceRoot = root;
     this.allNodes.set(uri.fsPath, node);
     parent?.children.push(node);
 
     // Check if this node is ignored
-    const isIgnored =
-      this.ignoreManager && this.ignoreManager.isIgnored(uri.fsPath);
+    const ignoreManager = this.ignoreManagers.get(root);
+    const tokenManager = this.tokenManagers.get(root);
+    const isIgnored = ignoreManager && ignoreManager.isIgnored(uri.fsPath);
     if (isIgnored) {
       node.isIgnored = true;
-      // Ignored nodes should always start as unchecked
-      node.selectionState = "unchecked";
-    } else {
-      const cached = this.selectionCache.get(uri.fsPath);
-      if (cached) {
-        node.selectionState = cached;
-      } else if (parent && parent.selectionState !== "indeterminate") {
-        node.selectionState = parent.selectionState;
-      }
     }
 
     // Get token count from TokenManager
-    if (this.tokenManager) {
-      const tokenCount = this.tokenManager.getTokenCount(uri.fsPath);
+    if (tokenManager) {
+      const tokenCount = tokenManager.getTokenCount(uri.fsPath);
       if (tokenCount !== undefined) {
         node.tokenCount = tokenCount;
       } else {
-        // Show "calculating..." for files being indexed
         node.tokenCount = 0;
         if (fileType === vscode.FileType.File) {
           node.description = TokenFormatter.formatTokensSafe(undefined);
@@ -338,9 +364,15 @@ export class ContextTreeProvider
         }
 
         if (!isChildOfCountedDirectory) {
-          if (this.tokenManager) {
-            const tokenCount = this.tokenManager.getTokenCountSync(nodePath);
-            total += tokenCount;
+          if (
+            node.workspaceRoot &&
+            this.tokenManagers.has(node.workspaceRoot)
+          ) {
+            const tokenManager = this.tokenManagers.get(node.workspaceRoot);
+            if (tokenManager) {
+              const tokenCount = tokenManager.getTokenCountSync(nodePath);
+              total += tokenCount;
+            }
           } else {
             total += node.tokenCount;
           }
@@ -424,8 +456,21 @@ export class ContextTreeProvider
         for (const entry of entries) {
           const entryPath = path.join(currentPath, entry);
 
-          if (this.ignoreManager && this.ignoreManager.isIgnored(entryPath)) {
-            continue;
+          const parentNode = this.findParent(
+            this.allNodes.get(entryPath) as ContextNode
+          );
+          if (
+            parentNode &&
+            parentNode.workspaceRoot &&
+            this.ignoreManagers.has(parentNode.workspaceRoot)
+          ) {
+            if (
+              this.ignoreManagers
+                .get(parentNode.workspaceRoot)
+                ?.isIgnored(entryPath)
+            ) {
+              continue;
+            }
           }
 
           const stat = await fs.promises.stat(entryPath);
@@ -442,10 +487,22 @@ export class ContextTreeProvider
             );
 
             // Get token count if available
-            if (this.tokenManager) {
-              const tokenCount = this.tokenManager.getTokenCountSync(entryPath);
-              if (tokenCount !== undefined) {
-                node.tokenCount = tokenCount;
+            const parentNode2 = this.findParent(
+              this.allNodes.get(entryPath) as ContextNode
+            );
+            if (
+              parentNode2 &&
+              parentNode2.workspaceRoot &&
+              this.tokenManagers.has(parentNode2.workspaceRoot)
+            ) {
+              const tokenManager = this.tokenManagers.get(
+                parentNode2.workspaceRoot
+              );
+              if (tokenManager) {
+                const tokenCount = tokenManager.getTokenCountSync(entryPath);
+                if (tokenCount !== undefined) {
+                  node.tokenCount = tokenCount;
+                }
               }
             }
 

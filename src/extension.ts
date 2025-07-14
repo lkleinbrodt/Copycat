@@ -10,28 +10,36 @@ import { TokenManager } from "./utils/TokenManager";
 export function activate(context: vscode.ExtensionContext) {
   console.log('Extension "copycat" is now active!');
 
-  const rootPath =
-    vscode.workspace.workspaceFolders &&
-    vscode.workspace.workspaceFolders.length > 0
-      ? vscode.workspace.workspaceFolders[0].uri.fsPath
-      : undefined;
+  const workspaceFoldersRaw = vscode.workspace.workspaceFolders;
+  const workspaceFolders = workspaceFoldersRaw
+    ? Array.from(workspaceFoldersRaw)
+    : [];
+  if (!workspaceFolders || workspaceFolders.length === 0) {
+    vscode.window.showWarningMessage("No workspace is open.");
+    return;
+  }
 
-  // Initialize TokenManager if we have a workspace
-  let tokenManager: TokenManager | undefined;
-  let ignoreManager: IgnoreManager | undefined;
-  if (rootPath) {
-    ignoreManager = new IgnoreManager(rootPath);
-    tokenManager = new TokenManager(
+  // Create managers for each root folder
+  const ignoreManagers = new Map<string, IgnoreManager>();
+  const tokenManagers = new Map<string, TokenManager>();
+  for (const folder of workspaceFolders) {
+    const rootPath = folder.uri.fsPath;
+    const ignoreManager = new IgnoreManager(rootPath);
+    ignoreManagers.set(rootPath, ignoreManager);
+    const tokenManager = new TokenManager(
       rootPath,
       ignoreManager,
       context.workspaceState
     );
-
-    // Start background indexing
+    tokenManagers.set(rootPath, tokenManager);
     tokenManager.startBackgroundIndexing();
   }
 
-  const treeProvider = new ContextTreeProvider(rootPath, tokenManager);
+  const treeProvider = new ContextTreeProvider(
+    workspaceFolders,
+    tokenManagers,
+    ignoreManagers
+  );
   const treeView = vscode.window.createTreeView("copyCatBundlerView", {
     treeDataProvider: treeProvider,
   });
@@ -46,17 +54,11 @@ export function activate(context: vscode.ExtensionContext) {
     }
   );
 
-  const clipboardHandler = rootPath
-    ? new ClipboardHandler(rootPath)
-    : undefined;
+  const clipboardHandler = new ClipboardHandler(workspaceFolders);
 
   const copyCmd = vscode.commands.registerCommand(
     "copycat.copyToClipboard",
     async () => {
-      if (!clipboardHandler) {
-        vscode.window.showWarningMessage("No workspace opened.");
-        return;
-      }
       const selected = await treeProvider.getSelectedNodes();
       if (selected.length === 0) {
         vscode.window.showWarningMessage("No files selected.");
@@ -69,10 +71,6 @@ export function activate(context: vscode.ExtensionContext) {
   const copyWithPromptCmd = vscode.commands.registerCommand(
     "copycat.copyToClipboardWithPrompt",
     async () => {
-      if (!clipboardHandler) {
-        vscode.window.showWarningMessage("No workspace opened.");
-        return;
-      }
       const selected = await treeProvider.getSelectedNodes();
       if (selected.length === 0) {
         vscode.window.showWarningMessage("No files selected.");
@@ -245,10 +243,14 @@ export function activate(context: vscode.ExtensionContext) {
 
       let message = `CopyCat Settings:\n- Show Ignored Nodes: ${showIgnoredNodes}\n- Default Ignore Patterns: ${
         defaultIgnorePatterns.length
-      } patterns\n- Workspace Root: ${rootPath || "None"}`;
+      } patterns\n- Workspace Roots: ${
+        workspaceFolders.length > 0
+          ? workspaceFolders.map((f) => f.uri.fsPath).join(", ")
+          : "None"
+      }`;
 
-      if (tokenManager) {
-        const stats = tokenManager.getCacheStats();
+      if (tokenManagers.size > 0) {
+        const stats = Array.from(tokenManagers.values())[0].getCacheStats(); // Assuming all managers have same stats for now
         message += `\n\nToken Manager Stats:\n- Total Files: ${stats.total}\n- Indexed: ${stats.indexed}\n- Pending: ${stats.pending}`;
 
         // Show some example token formatting
@@ -271,9 +273,12 @@ export function activate(context: vscode.ExtensionContext) {
       console.log("CopyCat Debug Info:", {
         showIgnoredNodes,
         defaultIgnorePatterns: defaultIgnorePatterns.length,
-        workspaceRoot: rootPath,
-        hasIgnoreManager: !!treeProvider["ignoreManager"],
-        tokenManagerStats: tokenManager?.getCacheStats(),
+        workspaceRoots: workspaceFolders.map((f) => f.uri.fsPath).join(", "),
+        hasIgnoreManagers: ignoreManagers.size > 0,
+        tokenManagerStats:
+          tokenManagers.size > 0
+            ? Array.from(tokenManagers.values())[0]?.getCacheStats()
+            : undefined,
       });
     }
   );
@@ -281,49 +286,63 @@ export function activate(context: vscode.ExtensionContext) {
   const clearCacheCmd = vscode.commands.registerCommand(
     "copycat.clearCache",
     async () => {
-      if (!tokenManager) {
+      if (tokenManagers.size === 0) {
         vscode.window.showWarningMessage("No workspace opened.");
         return;
       }
 
-      tokenManager.clearCache();
-      await tokenManager.startBackgroundIndexing();
+      for (const tokenManager of tokenManagers.values()) {
+        tokenManager.clearCache();
+        await tokenManager.startBackgroundIndexing();
+      }
       vscode.window.showInformationMessage(
-        "Token cache cleared and re-indexing started."
+        "Token cache cleared and re-indexing started for all workspaces."
       );
     }
   );
 
-  const watcher = rootPath
-    ? vscode.workspace.createFileSystemWatcher(
-        new vscode.RelativePattern(rootPath, "**/*")
-      )
-    : undefined;
-
-  // Enhanced file watchers that update TokenManager
-  watcher?.onDidCreate((uri) => {
-    if (tokenManager) {
-      tokenManager.onFileCreated(uri.fsPath);
-    } else {
-      treeProvider.refresh();
-    }
-  });
-
-  watcher?.onDidDelete((uri) => {
-    if (tokenManager) {
-      tokenManager.onFileDeleted(uri.fsPath);
-    } else {
-      treeProvider.refresh();
-    }
-  });
-
-  watcher?.onDidChange((uri) => {
-    if (tokenManager) {
-      tokenManager.onFileChanged(uri.fsPath);
-    } else {
-      treeProvider.refresh();
-    }
-  });
+  // Create a watcher for each workspace root
+  const watchers: vscode.FileSystemWatcher[] = [];
+  function getRootForPath(
+    filePath: string,
+    folders: readonly vscode.WorkspaceFolder[]
+  ): vscode.WorkspaceFolder | undefined {
+    // Find the workspace folder that this file belongs to
+    return folders
+      .slice()
+      .sort((a, b) => b.uri.fsPath.length - a.uri.fsPath.length)
+      .find((folder) => filePath.startsWith(folder.uri.fsPath));
+  }
+  for (const folder of workspaceFolders) {
+    const watcher = vscode.workspace.createFileSystemWatcher(
+      new vscode.RelativePattern(folder.uri.fsPath, "**/*")
+    );
+    watcher.onDidCreate((uri) => {
+      const rootFolder = getRootForPath(uri.fsPath, workspaceFolders);
+      if (rootFolder) {
+        tokenManagers.get(rootFolder.uri.fsPath)?.onFileCreated(uri.fsPath);
+      } else {
+        treeProvider.refresh();
+      }
+    });
+    watcher.onDidDelete((uri) => {
+      const rootFolder = getRootForPath(uri.fsPath, workspaceFolders);
+      if (rootFolder) {
+        tokenManagers.get(rootFolder.uri.fsPath)?.onFileDeleted(uri.fsPath);
+      } else {
+        treeProvider.refresh();
+      }
+    });
+    watcher.onDidChange((uri) => {
+      const rootFolder = getRootForPath(uri.fsPath, workspaceFolders);
+      if (rootFolder) {
+        tokenManagers.get(rootFolder.uri.fsPath)?.onFileChanged(uri.fsPath);
+      } else {
+        treeProvider.refresh();
+      }
+    });
+    watchers.push(watcher);
+  }
 
   // Listen for configuration changes to refresh the tree
   const configChangeListener = vscode.workspace.onDidChangeConfiguration(
@@ -334,20 +353,20 @@ export function activate(context: vscode.ExtensionContext) {
 
       // Handle changes to default ignore patterns
       if (event.affectsConfiguration("copyCatBundler.defaultIgnorePatterns")) {
-        if (ignoreManager) {
+        for (const ignoreManager of ignoreManagers.values()) {
           ignoreManager.reloadRules();
-          // Clear token cache and re-index since ignore rules changed
-          if (tokenManager) {
-            tokenManager.clearCache();
-            tokenManager.startBackgroundIndexing();
-          }
+        }
+        // Clear token cache and re-index since ignore rules changed
+        for (const tokenManager of tokenManagers.values()) {
+          tokenManager.clearCache();
+          tokenManager.startBackgroundIndexing();
         }
         treeProvider.refresh();
       }
     }
   );
 
-  if (watcher) {
+  for (const watcher of watchers) {
     context.subscriptions.push(watcher);
   }
   context.subscriptions.push(

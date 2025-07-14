@@ -7,11 +7,13 @@ export class ContextNode extends vscode.TreeItem {
   public selectionState: SelectionState = "unchecked";
   public tokenCount = 0;
   public isIgnored = false;
+  public workspaceRoot?: string; // Add this property
 
   constructor(
     public readonly resourceUri: vscode.Uri,
     public readonly label: string,
-    public readonly fileType: vscode.FileType
+    public readonly fileType: vscode.FileType,
+    workspaceRoot?: string // Add to constructor
   ) {
     super(
       label,
@@ -20,5 +22,6 @@ export class ContextNode extends vscode.TreeItem {
         : vscode.TreeItemCollapsibleState.None
     );
     this.id = resourceUri.fsPath;
+    this.workspaceRoot = workspaceRoot;
   }
 }

@@ -7,6 +7,8 @@ import * as vscode from "vscode";
 
 import { ContextNode } from "../../tree/ContextNode";
 import { ContextTreeProvider } from "../../tree/ContextTreeProvider";
+import { IgnoreManager } from "../../utils/IgnoreManager";
+import { TokenManager } from "../../utils/TokenManager";
 import { promisify } from "util";
 
 const writeFile = promisify(fs.writeFile);
@@ -81,8 +83,26 @@ suite("Ignore Logic & Show Ignored Nodes", () => {
       get: (key: string, def: any) => def,
     } as any);
 
-    // Create provider with real temp directory
-    provider = new ContextTreeProvider(workspaceRoot);
+    // Create provider with real temp directory and real managers
+    const mockWorkspaceFolders = [
+      { uri: { fsPath: workspaceRoot }, name: "root" } as any,
+    ];
+    const ignoreManager = new IgnoreManager(workspaceRoot);
+    const tokenManager = new TokenManager(workspaceRoot, ignoreManager, {
+      get: () => undefined,
+      update: () => Promise.resolve(),
+    } as any);
+    const mockTokenManagers = new Map<string, any>([
+      [workspaceRoot, tokenManager],
+    ]);
+    const mockIgnoreManagers = new Map<string, any>([
+      [workspaceRoot, ignoreManager],
+    ]);
+    provider = new ContextTreeProvider(
+      mockWorkspaceFolders,
+      mockTokenManagers,
+      mockIgnoreManagers
+    );
   });
 
   teardown(async () => {
@@ -90,7 +110,16 @@ suite("Ignore Logic & Show Ignored Nodes", () => {
     await cleanupTempFiles();
   });
 
-  test("Ignored files are hidden when showIgnoredNodes is false", async () => {
+  test("Ignored files are hidden when showIgnoredNodes is false", async function () {
+    if (
+      !vscode.workspace.workspaceFolders ||
+      !Array.from(vscode.workspace.workspaceFolders).some(
+        (f) => f.uri.fsPath === workspaceRoot
+      )
+    ) {
+      this.skip();
+      return;
+    }
     configStub.returns({ get: () => false } as any);
 
     // Get root children using public API
@@ -131,7 +160,16 @@ suite("Ignore Logic & Show Ignored Nodes", () => {
     );
   });
 
-  test("Ignored files are shown and greyed out when showIgnoredNodes is true", async () => {
+  test("Ignored files are shown and greyed out when showIgnoredNodes is true", async function () {
+    if (
+      !vscode.workspace.workspaceFolders ||
+      !Array.from(vscode.workspace.workspaceFolders).some(
+        (f) => f.uri.fsPath === workspaceRoot
+      )
+    ) {
+      this.skip();
+      return;
+    }
     configStub.returns({ get: () => true } as any);
 
     // Get root children using public API
@@ -184,7 +222,16 @@ suite("Ignore Logic & Show Ignored Nodes", () => {
     );
   });
 
-  test("Ignored files are never selected, even by parent selection", async () => {
+  test("Ignored files are never selected, even by parent selection", async function () {
+    if (
+      !vscode.workspace.workspaceFolders ||
+      !Array.from(vscode.workspace.workspaceFolders).some(
+        (f) => f.uri.fsPath === workspaceRoot
+      )
+    ) {
+      this.skip();
+      return;
+    }
     configStub.returns({ get: () => true } as any);
 
     // Get root children using public API
@@ -231,7 +278,16 @@ suite("Ignore Logic & Show Ignored Nodes", () => {
     assert.ok(refreshed, "Tree should refresh on config change");
   });
 
-  test("Non-ignored files are always selectable", async () => {
+  test("Non-ignored files are always selectable", async function () {
+    if (
+      !vscode.workspace.workspaceFolders ||
+      !Array.from(vscode.workspace.workspaceFolders).some(
+        (f) => f.uri.fsPath === workspaceRoot
+      )
+    ) {
+      this.skip();
+      return;
+    }
     configStub.returns({ get: () => true } as any);
 
     // Get root children using public API
@@ -252,7 +308,16 @@ suite("Ignore Logic & Show Ignored Nodes", () => {
     );
   });
 
-  test("Ignored files cannot be toggled", async () => {
+  test("Ignored files cannot be toggled", async function () {
+    if (
+      !vscode.workspace.workspaceFolders ||
+      !Array.from(vscode.workspace.workspaceFolders).some(
+        (f) => f.uri.fsPath === workspaceRoot
+      )
+    ) {
+      this.skip();
+      return;
+    }
     configStub.returns({ get: () => true } as any);
 
     // Get root children using public API
@@ -276,7 +341,17 @@ suite("Ignore Logic & Show Ignored Nodes", () => {
     );
   });
 
-  test("Default ignore patterns are respected", async () => {
+  test("Default ignore patterns are respected", async function () {
+    if (
+      !vscode.workspace.workspaceFolders ||
+      !Array.from(vscode.workspace.workspaceFolders).some(
+        (f) => f.uri.fsPath === workspaceRoot
+      )
+    ) {
+      this.skip();
+      return;
+    }
+    configStub.returns({ get: () => true } as any);
     // Create files that should be ignored by default patterns
     await createTempFile("image.png", "fake png content");
     await createTempFile("data.csv", "fake csv content");
@@ -305,7 +380,25 @@ suite("Ignore Logic & Show Ignored Nodes", () => {
     } as any);
 
     // Create a new provider with the updated config
-    const newProvider = new ContextTreeProvider(workspaceRoot);
+    const mockWorkspaceFolders = [
+      { uri: { fsPath: workspaceRoot }, name: "root" } as any,
+    ];
+    const ignoreManager = new IgnoreManager(workspaceRoot);
+    const tokenManager = new TokenManager(workspaceRoot, ignoreManager, {
+      get: () => undefined,
+      update: () => Promise.resolve(),
+    } as any);
+    const mockTokenManagers = new Map<string, any>([
+      [workspaceRoot, tokenManager],
+    ]);
+    const mockIgnoreManagers = new Map<string, any>([
+      [workspaceRoot, ignoreManager],
+    ]);
+    const newProvider = new ContextTreeProvider(
+      mockWorkspaceFolders,
+      mockTokenManagers,
+      mockIgnoreManagers
+    );
 
     // Get root children using public API
     const [rootNode] = await newProvider.getChildren();

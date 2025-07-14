@@ -22,7 +22,14 @@ suite("Extension Test Suite", () => {
     );
   });
 
-  test("Commands are registered", async () => {
+  test("Commands are registered", async function () {
+    if (
+      !vscode.workspace.workspaceFolders ||
+      vscode.workspace.workspaceFolders.length === 0
+    ) {
+      this.skip();
+      return;
+    }
     const ext = vscode.extensions.getExtension(
       "LandonKleinbrodt.CopyCatBundler"
     );
@@ -100,7 +107,16 @@ suite("Extension Test Suite", () => {
       return;
     }
     const workspaceRoot = vscode.workspace.workspaceFolders[0].uri.fsPath;
-    const provider = new ContextTreeProvider(workspaceRoot);
+    const mockWorkspaceFolders = [
+      { uri: { fsPath: workspaceRoot }, name: "root" } as any,
+    ];
+    const mockTokenManagers = new Map<string, any>();
+    const mockIgnoreManagers = new Map<string, any>();
+    const provider = new ContextTreeProvider(
+      mockWorkspaceFolders,
+      mockTokenManagers,
+      mockIgnoreManagers
+    );
 
     // Create a test directory structure
     const testDir = path.join(workspaceRoot, "test-dir");

@@ -10,10 +10,17 @@ import { promises as fsPromises } from "fs";
 export type FileTreeMode = "full" | "relevant" | "none";
 
 export class ClipboardHandler {
-  private ignoreManager: IgnoreManager;
+  private workspaceFolders: readonly vscode.WorkspaceFolder[];
+  private ignoreManagers = new Map<string, IgnoreManager>();
 
-  constructor(private workspaceRoot: string) {
-    this.ignoreManager = new IgnoreManager(workspaceRoot);
+  constructor(workspaceFolders: readonly vscode.WorkspaceFolder[]) {
+    this.workspaceFolders = workspaceFolders;
+    for (const folder of workspaceFolders) {
+      this.ignoreManagers.set(
+        folder.uri.fsPath,
+        new IgnoreManager(folder.uri.fsPath)
+      );
+    }
   }
 
   private getLanguageHint(filePath: string): string {
@@ -23,21 +30,27 @@ export class ClipboardHandler {
 
   private async generateFileTree(
     mode: FileTreeMode,
-    selectedNodes?: ContextNode[]
+    selectedNodes: ContextNode[],
+    workspaceRoot: string
   ): Promise<string> {
     if (mode === "none") {
       return "";
     }
 
     const treeLines: string[] = [];
-    const projectName = path.basename(this.workspaceRoot);
-
+    const projectName = path.basename(workspaceRoot);
     treeLines.push(`${projectName}/`);
 
     if (mode === "full") {
-      await this.buildTreeRecursive(this.workspaceRoot, "", treeLines, 0);
+      await this.buildTreeRecursive(
+        workspaceRoot,
+        "",
+        treeLines,
+        0,
+        workspaceRoot
+      );
     } else if (mode === "relevant" && selectedNodes) {
-      await this.buildRelevantTree(selectedNodes, treeLines);
+      await this.buildRelevantTree(selectedNodes, treeLines, workspaceRoot);
     }
 
     return treeLines.join("\n");
@@ -47,7 +60,8 @@ export class ClipboardHandler {
     currentPath: string,
     relativePath: string,
     treeLines: string[],
-    depth: number
+    depth: number,
+    workspaceRoot: string
   ): Promise<void> {
     try {
       const entries = await fsPromises.readdir(currentPath);
@@ -81,9 +95,10 @@ export class ClipboardHandler {
 
       // Filter out ignored entries first
       const nonIgnoredEntries: { name: string; stat: fs.Stats }[] = [];
+      const ignoreManager = this.ignoreManagers.get(workspaceRoot);
       for (const entry of sortedEntries) {
         const entryPath = path.join(currentPath, entry!.name);
-        if (!this.ignoreManager.isIgnored(entryPath)) {
+        if (!ignoreManager || !ignoreManager.isIgnored(entryPath)) {
           nonIgnoredEntries.push({ name: entry!.name, stat: entry!.stat });
         }
       }
@@ -96,7 +111,8 @@ export class ClipboardHandler {
         if (entry.stat.isDirectory()) {
           // Check if directory has any non-ignored children
           const hasNonIgnoredChildren = await this.hasNonIgnoredChildren(
-            entryPath
+            entryPath,
+            workspaceRoot
           );
           if (hasNonIgnoredChildren) {
             visibleEntries.push(entry);
@@ -122,7 +138,8 @@ export class ClipboardHandler {
             entryPath,
             entryRelativePath,
             treeLines,
-            depth + 1
+            depth + 1,
+            workspaceRoot
           );
         } else {
           treeLines.push(`${prefix}${entry.name}`);
@@ -135,14 +152,16 @@ export class ClipboardHandler {
 
   private async buildRelevantTree(
     selectedNodes: ContextNode[],
-    treeLines: string[]
+    treeLines: string[],
+    workspaceRoot: string
   ): Promise<void> {
     // Get all unique paths that need to be shown
     const relevantPaths = new Set<string>();
 
     for (const node of selectedNodes) {
+      if (node.workspaceRoot !== workspaceRoot) continue;
       const relativePath = path.relative(
-        this.workspaceRoot,
+        workspaceRoot,
         node.resourceUri.fsPath
       );
       const pathParts = relativePath.split(path.sep);
@@ -170,8 +189,13 @@ export class ClipboardHandler {
 
     // Build the tree structure
     for (const relativePath of sortedPaths) {
-      const fullPath = path.join(this.workspaceRoot, relativePath);
-      const stat = await fsPromises.stat(fullPath);
+      const fullPath = path.join(workspaceRoot, relativePath);
+      let stat: fs.Stats;
+      try {
+        stat = await fsPromises.stat(fullPath);
+      } catch {
+        continue;
+      }
       const pathParts = relativePath.split(path.sep);
       const depth = pathParts.length - 1;
 
@@ -207,33 +231,23 @@ export class ClipboardHandler {
     return true;
   }
 
-  private async hasNonIgnoredChildren(dirPath: string): Promise<boolean> {
+  private async hasNonIgnoredChildren(
+    dirPath: string,
+    workspaceRoot: string
+  ): Promise<boolean> {
+    const ignoreManager = this.ignoreManagers.get(workspaceRoot);
     try {
       const entries = await fsPromises.readdir(dirPath);
-
       for (const entry of entries) {
         const entryPath = path.join(dirPath, entry);
-
-        if (!this.ignoreManager.isIgnored(entryPath)) {
-          const stat = await fsPromises.stat(entryPath);
-
-          if (stat.isFile()) {
-            return true; // Found a non-ignored file
-          } else if (stat.isDirectory()) {
-            // Recursively check if this subdirectory has non-ignored children
-            const hasChildren = await this.hasNonIgnoredChildren(entryPath);
-            if (hasChildren) {
-              return true;
-            }
-          }
+        if (!ignoreManager || !ignoreManager.isIgnored(entryPath)) {
+          return true;
         }
       }
-
-      return false; // No non-ignored children found
-    } catch (error) {
-      console.warn(`Error checking children of ${dirPath}:`, error);
-      return false;
+    } catch {
+      // ignore
     }
+    return false;
   }
 
   private getTreePrefix(depth: number, isLast: boolean): string {
@@ -248,89 +262,76 @@ export class ClipboardHandler {
     systemPrompt?: string,
     fileTreeMode?: FileTreeMode
   ): Promise<void> {
-    // Get file tree mode from settings if not provided
-    if (!fileTreeMode) {
-      const config = vscode.workspace.getConfiguration("copyCatBundler");
-      fileTreeMode = config.get<FileTreeMode>("fileTreeMode", "full");
-    }
+    // Get file tree mode from settings
+    const config = vscode.workspace.getConfiguration("copyCatBundler");
+    const effectiveFileTreeMode =
+      fileTreeMode || config.get<FileTreeMode>("fileTreeMode", "full");
 
-    let bundled = "";
-
-    // Add introduction message
-    bundled += "# Codebase Analysis Request\n\n";
-    bundled +=
-      "Below is a codebase with its file structure and selected source files. Please analyze this code and provide assistance based on the user's request.\n\n";
-
-    // Add file tree based on mode
-    const fileTree = await this.generateFileTree(fileTreeMode, selectedNodes);
-    if (fileTree) {
-      bundled += "## Project File Structure\n\n";
-
-      // Add a note about the tree mode
-      if (fileTreeMode === "relevant") {
-        bundled +=
-          "*Note: This tree shows only a subset of the project's files and folders, as requested by the user.*\n\n";
-      } else if (fileTreeMode === "full") {
-        // Do nothing
-      }
-
-      bundled += "```\n";
-      bundled += fileTree;
-      bundled += "\n```\n\n";
-    }
-
-    // Add selected files
-    bundled += "## Source Code Files\n\n";
+    // 1. Group selected nodes by their workspace root
+    const nodesByRoot = new Map<string, ContextNode[]>();
     for (const node of selectedNodes) {
-      const relative = path.relative(
-        this.workspaceRoot,
-        node.resourceUri.fsPath
-      );
-      const content = await fsPromises.readFile(
-        node.resourceUri.fsPath,
-        "utf-8"
-      );
-      const languageHint = this.getLanguageHint(node.resourceUri.fsPath);
+      if (!node.workspaceRoot) continue;
+      if (!nodesByRoot.has(node.workspaceRoot)) {
+        nodesByRoot.set(node.workspaceRoot, []);
+      }
+      nodesByRoot.get(node.workspaceRoot)!.push(node);
+    }
 
-      // Format with markdown heading and fenced code block
-      bundled += `### File: ${relative}\n\n`;
-      if (languageHint) {
-        bundled += `\`\`\`${languageHint}\n${content}\n\`\`\`\n\n`;
-      } else {
-        bundled += `\`\`\`\n${content}\n\`\`\`\n\n`;
+    let bundled = "# Codebase Analysis Request\n\n";
+
+    // 2. Add introductory message
+    if (nodesByRoot.size > 1) {
+      bundled += `*Note: The user has selected files from ${nodesByRoot.size} separate directories. Each directory's context is provided below.*\n\n`;
+    } else {
+      bundled +=
+        "Below is a codebase with its file structure and selected source files. Please analyze this code and provide assistance based on the user's request.\n\n";
+    }
+
+    // 3. Loop through each root and generate its section
+    for (const [rootPath, nodesInRoot] of nodesByRoot.entries()) {
+      const folderName = path.basename(rootPath);
+      bundled += `---\n\n## Project: ${folderName}\n\n`;
+
+      // A. Add file tree for this root
+      const fileTree = await this.generateFileTree(
+        effectiveFileTreeMode,
+        nodesInRoot,
+        rootPath
+      );
+      if (fileTree) {
+        bundled +=
+          "### Project File Structure\n\n```\n" + fileTree + "\n```\n\n";
+      }
+
+      // B. Add file contents for this root
+      bundled += "### Source Code Files\n\n";
+      for (const node of nodesInRoot) {
+        const relativePath = path.relative(rootPath, node.resourceUri.fsPath);
+        const content = await fsPromises.readFile(
+          node.resourceUri.fsPath,
+          "utf-8"
+        );
+        const languageHint = this.getLanguageHint(node.resourceUri.fsPath);
+
+        bundled += `#### File: ${relativePath}\n\n`;
+        bundled += `\  ${languageHint}\n${content}\n  \n\n`;
       }
     }
 
-    // Add prompt section if provided
+    // 4. Add the final prompt section (this part is unchanged)
     if ((systemPrompt && systemPrompt.trim()) || (prompt && prompt.trim())) {
-      bundled += "## User Request & Instructions\n\n";
-
-      if (systemPrompt && systemPrompt.trim()) {
-        bundled += `**Context & Guidelines:**\n${systemPrompt.trim()}\n\n`;
-      }
-
-      if (prompt && prompt.trim()) {
-        bundled += `**Task/Question:**\n${prompt.trim()}\n\n`;
-      }
-
       bundled += "---\n\n";
-      bundled +=
-        "**Please provide a comprehensive response that addresses the user's request. Consider the code structure, patterns, and implementation details when formulating your answer.**\n\n";
+      if (systemPrompt && systemPrompt.trim()) {
+        bundled += `**System Prompt:**\n\n${systemPrompt.trim()}\n\n`;
+      }
+      if (prompt && prompt.trim()) {
+        bundled += `**User Request:**\n\n${prompt.trim()}\n`;
+      }
     }
 
     await vscode.env.clipboard.writeText(bundled);
-
-    const modeText =
-      fileTreeMode === "none"
-        ? " (no tree)"
-        : fileTreeMode === "relevant"
-        ? " (relevant tree)"
-        : " (full tree)";
-
     vscode.window.showInformationMessage(
-      `Copied ${selectedNodes.length} files to clipboard!${
-        prompt ? " (with prompt)" : ""
-      }${modeText}`
+      `Copied ${selectedNodes.length} files from ${nodesByRoot.size} director(y/ies) to clipboard!`
     );
   }
 }
