@@ -9,12 +9,22 @@ import { promises as fsPromises } from "fs";
 
 export type FileTreeMode = "full" | "relevant" | "none";
 
+// Define an interface for what we need from the clipboard
+interface IClipboard {
+  writeText(text: string): Thenable<void>;
+}
+
 export class ClipboardHandler {
   private workspaceFolders: readonly vscode.WorkspaceFolder[];
   private ignoreManagers = new Map<string, IgnoreManager>();
+  private clipboard: IClipboard;
 
-  constructor(workspaceFolders: readonly vscode.WorkspaceFolder[]) {
+  constructor(
+    workspaceFolders: readonly vscode.WorkspaceFolder[],
+    clipboard: IClipboard = vscode.env.clipboard
+  ) {
     this.workspaceFolders = workspaceFolders;
+    this.clipboard = clipboard;
     for (const folder of workspaceFolders) {
       this.ignoreManagers.set(
         folder.uri.fsPath,
@@ -329,7 +339,7 @@ export class ClipboardHandler {
       }
     }
 
-    await vscode.env.clipboard.writeText(bundled);
+    await this.clipboard.writeText(bundled);
     vscode.window.showInformationMessage(
       `Copied ${selectedNodes.length} files from ${nodesByRoot.size} director(y/ies) to clipboard!`
     );

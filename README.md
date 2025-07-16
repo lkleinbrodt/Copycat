@@ -6,6 +6,10 @@
 
 CopyCat is a VS Code extension that helps you share code with large language models (LLMs) by packaging selected files into a single, well-formatted text block. Perfect for when you need to provide context to AI assistants like ChatGPT, Claude, or GitHub Copilot.
 
+Simply use the CopyCat section in the Explorer panel to select files and folders, then click/keybind to copy them to your clipboard (with additional options for user prompts, system prompts, and file tree modes).
+
+Oh, and it automatically respects `.gitignore` rules and includes a comprehensive default ignore list for common file types that aren't useful for LLM context.
+
 ## ✨ Features
 
 - **Visual File Selection**: Browse and select files through an intuitive tree view in the Explorer

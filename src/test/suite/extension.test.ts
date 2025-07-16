@@ -7,6 +7,8 @@ import { ClipboardHandler, FileTreeMode } from "../../utils/ClipboardHandler";
 
 import { ContextNode } from "../../tree/ContextNode";
 import { ContextTreeProvider } from "../../tree/ContextTreeProvider";
+import { IgnoreManager } from "../../utils/IgnoreManager";
+import { TokenManager } from "../../utils/TokenManager";
 
 suite("Extension Test Suite", () => {
   vscode.window.showInformationMessage("Start all tests.");
@@ -99,47 +101,46 @@ suite("Extension Test Suite", () => {
   });
 
   test("Directory selection should recursively select all files", async function () {
-    if (
-      !vscode.workspace.workspaceFolders ||
-      vscode.workspace.workspaceFolders.length === 0
-    ) {
-      this.skip();
-      return;
+    const workspaceRoot = vscode.workspace.workspaceFolders![0].uri.fsPath;
+    const ignoreManagers = new Map<string, IgnoreManager>();
+    const tokenManagers = new Map<string, TokenManager>();
+    for (const folder of vscode.workspace.workspaceFolders!) {
+      const rootPath = folder.uri.fsPath;
+      const ignoreManager = new IgnoreManager(rootPath);
+      ignoreManagers.set(rootPath, ignoreManager);
+      const mockState: vscode.Memento = {
+        get: () => ({}),
+        update: async () => {},
+        keys: () => [],
+      };
+      tokenManagers.set(
+        rootPath,
+        new TokenManager(rootPath, ignoreManager, mockState)
+      );
     }
-    const workspaceRoot = vscode.workspace.workspaceFolders[0].uri.fsPath;
-    const mockWorkspaceFolders = [
-      { uri: { fsPath: workspaceRoot }, name: "root" } as any,
-    ];
-    const mockTokenManagers = new Map<string, any>();
-    const mockIgnoreManagers = new Map<string, any>();
     const provider = new ContextTreeProvider(
-      mockWorkspaceFolders,
-      mockTokenManagers,
-      mockIgnoreManagers
+      vscode.workspace.workspaceFolders,
+      tokenManagers,
+      ignoreManagers
     );
-
-    // Create a test directory structure
     const testDir = path.join(workspaceRoot, "test-dir");
     const subDir = path.join(testDir, "sub-dir");
     const nestedFile = path.join(subDir, "nested.txt");
     const topLevelFile = path.join(testDir, "top-level.txt");
-
-    // Create directories and files
-    await fs.promises.mkdir(testDir, { recursive: true });
     await fs.promises.mkdir(subDir, { recursive: true });
     await fs.promises.writeFile(nestedFile, "nested content");
     await fs.promises.writeFile(topLevelFile, "top level content");
-
     try {
-      // Get the root node and find our test directory using public API
-      const [rootNode] = await provider.getChildren();
-      const children = await provider.getChildren(rootNode);
-
+      provider.refresh();
+      const rootNodes = await provider.getChildren();
+      const testRootNode = rootNodes.find(
+        (n) => n.resourceUri.fsPath === workspaceRoot
+      )!;
+      const children = await provider.getChildren(testRootNode);
       const testDirNode = children.find(
         (child: ContextNode) => child.label === "test-dir"
       );
       assert.ok(testDirNode, "test-dir should exist");
-
       // Select the test directory using public API
       provider.toggleNode(testDirNode);
 
@@ -164,7 +165,6 @@ suite("Extension Test Suite", () => {
         "Should have exactly 2 files selected"
       );
     } finally {
-      // Clean up
       await fs.promises.rm(testDir, { recursive: true, force: true });
     }
   });

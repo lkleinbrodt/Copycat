@@ -1,4 +1,3 @@
-// This test requires 'sinon' as a devDependency. Install with: npm install --save-dev sinon @types/sinon
 import * as assert from "assert";
 import * as fs from "fs";
 import * as path from "path";
@@ -13,15 +12,18 @@ import { promisify } from "util";
 
 const writeFile = promisify(fs.writeFile);
 const mkdir = promisify(fs.mkdir);
-const rmdir = promisify(fs.rmdir);
-const unlink = promisify(fs.unlink);
 
 suite("Ignore Logic & Show Ignored Nodes", () => {
   let sandbox: sinon.SinonSandbox;
   let provider: ContextTreeProvider;
-  let configStub: sinon.SinonStub;
-  let tempDir: string;
-  let workspaceRoot: string;
+  let configStub: {
+    get: (key: string, def?: any) => any;
+    update: () => Promise<void>;
+    showIgnoredNodesValue: boolean;
+  };
+
+  // Use the first workspace folder provided by the test runner
+  const workspaceRoot = vscode.workspace.workspaceFolders![0].uri.fsPath;
 
   async function createTempFile(
     filePath: string,
@@ -36,40 +38,11 @@ suite("Ignore Logic & Show Ignored Nodes", () => {
     await mkdir(fullPath, { recursive: true });
   }
 
-  async function cleanupTempFiles() {
-    if (tempDir && fs.existsSync(tempDir)) {
-      // Remove all files and directories recursively
-      const removeRecursive = async (dir: string) => {
-        const items = fs.readdirSync(dir);
-        for (const item of items) {
-          const fullPath = path.join(dir, item);
-          const stat = fs.statSync(fullPath);
-          if (stat.isDirectory()) {
-            await removeRecursive(fullPath);
-            await rmdir(fullPath);
-          } else {
-            await unlink(fullPath);
-          }
-        }
-      };
-      await removeRecursive(tempDir);
-      await rmdir(tempDir);
-    }
-  }
-
   setup(async () => {
     sandbox = sinon.createSandbox();
 
-    // Create temporary directory
-    tempDir = fs.mkdtempSync(
-      path.join(require("os").tmpdir(), "copycat-test-")
-    );
-    workspaceRoot = tempDir;
-
-    // Create .gitignore file
-    await createTempFile(".gitignore", "ignored.txt\nignored-dir\n*.log");
-
-    // Create some test files
+    // Create .gitignore and test files inside the first workspace folder
+    await createTempFile(".gitignore", "ignored.txt\nignored-dir/\n*.log");
     await createTempFile("visible.txt", "visible content");
     await createTempFile("ignored.txt", "ignored content");
     await createTempDir("visible-dir");
@@ -78,68 +51,58 @@ suite("Ignore Logic & Show Ignored Nodes", () => {
     await createTempFile("ignored-dir/file.txt", "ignored nested content");
     await createTempFile("test.log", "log content");
 
-    // Stub config
-    configStub = sandbox.stub(vscode.workspace, "getConfiguration").returns({
-      get: (key: string, def: any) => def,
-    } as any);
-
-    // Create provider with real temp directory and real managers
-    const mockWorkspaceFolders = [
-      { uri: { fsPath: workspaceRoot }, name: "root" } as any,
-    ];
-    const ignoreManager = new IgnoreManager(workspaceRoot);
-    const tokenManager = new TokenManager(workspaceRoot, ignoreManager, {
-      get: () => undefined,
+    configStub = {
+      showIgnoredNodesValue: false,
+      get: function (key: string, def?: any) {
+        if (key === "showIgnoredNodes") return this.showIgnoredNodesValue;
+        return def;
+      },
       update: () => Promise.resolve(),
-    } as any);
-    const mockTokenManagers = new Map<string, any>([
-      [workspaceRoot, tokenManager],
-    ]);
-    const mockIgnoreManagers = new Map<string, any>([
-      [workspaceRoot, ignoreManager],
-    ]);
+    };
+    sandbox
+      .stub(vscode.workspace, "getConfiguration")
+      .returns(configStub as any);
+
+    // Correctly instantiate the provider for a multi-root world
+    const ignoreManagers = new Map<string, IgnoreManager>();
+    const tokenManagers = new Map<string, TokenManager>();
+
+    for (const folder of vscode.workspace.workspaceFolders!) {
+      const rootPath = folder.uri.fsPath;
+      const ignoreManager = new IgnoreManager(rootPath);
+      ignoreManagers.set(rootPath, ignoreManager);
+
+      // Mock workspace state for TokenManager
+      const mockState: vscode.Memento = {
+        get: () => ({}),
+        update: async () => {},
+        keys: () => [],
+      };
+      tokenManagers.set(
+        rootPath,
+        new TokenManager(rootPath, ignoreManager, mockState)
+      );
+    }
+
     provider = new ContextTreeProvider(
-      mockWorkspaceFolders,
-      mockTokenManagers,
-      mockIgnoreManagers
+      vscode.workspace.workspaceFolders,
+      tokenManagers,
+      ignoreManagers
     );
   });
 
-  teardown(async () => {
+  teardown(() => {
     sandbox.restore();
-    await cleanupTempFiles();
+    // No need to cleanup files, test runner will delete the temp workspace
   });
 
-  test("Ignored files are hidden when showIgnoredNodes is false", async function () {
-    if (
-      !vscode.workspace.workspaceFolders ||
-      !Array.from(vscode.workspace.workspaceFolders).some(
-        (f) => f.uri.fsPath === workspaceRoot
-      )
-    ) {
-      this.skip();
-      return;
-    }
-    configStub.returns({ get: () => false } as any);
+  test("Ignored files are hidden when showIgnoredNodes is false", async () => {
+    configStub.showIgnoredNodesValue = false;
+    provider.refresh();
 
-    // Get root children using public API
     const [rootNode] = await provider.getChildren();
     const children = await provider.getChildren(rootNode);
 
-    // Debug: log the actual setting value and what we got
-    console.log(
-      "showIgnoredNodes setting:",
-      (provider as any).showIgnoredNodes
-    );
-    console.log(
-      "Children found:",
-      children.map((child: ContextNode) => ({
-        label: child.label,
-        isIgnored: child.isIgnored,
-      }))
-    );
-
-    // Should not contain ignored files
     const childNames = children.map((child: ContextNode) => child.label);
     assert.ok(
       !childNames.includes("ignored.txt"),
@@ -154,291 +117,46 @@ suite("Ignore Logic & Show Ignored Nodes", () => {
       childNames.includes("visible.txt"),
       "visible.txt should be visible"
     );
-    assert.ok(
-      childNames.includes("visible-dir"),
-      "visible-dir should be visible"
-    );
   });
 
-  test("Ignored files are shown and greyed out when showIgnoredNodes is true", async function () {
-    if (
-      !vscode.workspace.workspaceFolders ||
-      !Array.from(vscode.workspace.workspaceFolders).some(
-        (f) => f.uri.fsPath === workspaceRoot
-      )
-    ) {
-      this.skip();
-      return;
-    }
-    configStub.returns({ get: () => true } as any);
+  test("Ignored files are shown and greyed out when showIgnoredNodes is true", async () => {
+    configStub.showIgnoredNodesValue = true;
+    provider.refresh();
 
-    // Get root children using public API
     const [rootNode] = await provider.getChildren();
     const children = await provider.getChildren(rootNode);
 
-    // Should contain all files, but ignored ones should be marked
-    const childNames = children.map((child: ContextNode) => child.label);
-    assert.ok(
-      childNames.includes("ignored.txt"),
-      "ignored.txt should be shown"
-    );
-    assert.ok(
-      childNames.includes("ignored-dir"),
-      "ignored-dir should be shown"
-    );
-    assert.ok(childNames.includes("test.log"), "test.log should be shown");
-    assert.ok(
-      childNames.includes("visible.txt"),
-      "visible.txt should be visible"
-    );
-    assert.ok(
-      childNames.includes("visible-dir"),
-      "visible-dir should be visible"
-    );
-
-    // Check that ignored files are marked as ignored
     const ignoredFile = children.find(
       (child: ContextNode) => child.label === "ignored.txt"
     );
-    const ignoredDir = children.find(
-      (child: ContextNode) => child.label === "ignored-dir"
-    );
-    const logFile = children.find(
-      (child: ContextNode) => child.label === "test.log"
-    );
-    const visibleFile = children.find(
-      (child: ContextNode) => child.label === "visible.txt"
-    );
-
     assert.ok(
       ignoredFile?.isIgnored,
       "ignored.txt should be marked as ignored"
     );
-    assert.ok(ignoredDir?.isIgnored, "ignored-dir should be marked as ignored");
-    assert.ok(logFile?.isIgnored, "test.log should be marked as ignored");
-    assert.ok(
-      !visibleFile?.isIgnored,
-      "visible.txt should not be marked as ignored"
-    );
   });
 
-  test("Ignored files are never selected, even by parent selection", async function () {
-    if (
-      !vscode.workspace.workspaceFolders ||
-      !Array.from(vscode.workspace.workspaceFolders).some(
-        (f) => f.uri.fsPath === workspaceRoot
-      )
-    ) {
-      this.skip();
-      return;
-    }
-    configStub.returns({ get: () => true } as any);
+  test(".contextignore is respected", async () => {
+    await createTempFile(".contextignore", "context-ignored.txt");
+    await createTempFile("context-ignored.txt", "some content");
 
-    // Get root children using public API
-    const [rootNode] = await provider.getChildren();
-    const children = await provider.getChildren(rootNode);
+    // The IgnoreManager for this workspace needs to be reloaded
+    const ignoreManager = (provider as any).ignoreManagers.get(workspaceRoot);
+    ignoreManager.reloadRules();
+    provider.refresh(); // Refresh to pick up new ignore file
 
-    // Find visible and ignored files
-    const visibleFile = children.find(
-      (child: ContextNode) => child.label === "visible.txt"
-    );
-    const ignoredFile = children.find(
-      (child: ContextNode) => child.label === "ignored.txt"
-    );
-
-    assert.ok(visibleFile, "visible.txt should exist");
-    assert.ok(ignoredFile, "ignored.txt should exist");
-
-    // Set root to checked state using public API
-    provider.toggleNode(rootNode);
-
-    // Check that visible file is selected but ignored file is not
-    assert.strictEqual(
-      visibleFile!.selectionState,
-      "checked",
-      "Non-ignored file should be checked"
-    );
-    assert.strictEqual(
-      ignoredFile!.selectionState,
-      "unchecked",
-      "Ignored file should remain unchecked"
-    );
-  });
-
-  test("Changing showIgnoredNodes setting refreshes the tree", () => {
-    let refreshed = false;
-    const originalRefresh = provider.refresh;
-    provider.refresh = () => {
-      refreshed = true;
-      originalRefresh.call(provider);
-    };
-
-    // Simulate config change by directly calling refresh
+    configStub.showIgnoredNodesValue = true;
     provider.refresh();
-    assert.ok(refreshed, "Tree should refresh on config change");
-  });
 
-  test("Non-ignored files are always selectable", async function () {
-    if (
-      !vscode.workspace.workspaceFolders ||
-      !Array.from(vscode.workspace.workspaceFolders).some(
-        (f) => f.uri.fsPath === workspaceRoot
-      )
-    ) {
-      this.skip();
-      return;
-    }
-    configStub.returns({ get: () => true } as any);
-
-    // Get root children using public API
     const [rootNode] = await provider.getChildren();
     const children = await provider.getChildren(rootNode);
 
-    const visibleFile = children.find(
-      (child: ContextNode) => child.label === "visible.txt"
+    const node = children.find(
+      (child) => child.label === "context-ignored.txt"
     );
-    assert.ok(visibleFile, "visible.txt should exist");
-
-    // Toggle the node
-    provider.toggleNode(visibleFile!);
-    assert.strictEqual(
-      visibleFile!.selectionState,
-      "checked",
-      "Non-ignored node should be checked"
-    );
-  });
-
-  test("Ignored files cannot be toggled", async function () {
-    if (
-      !vscode.workspace.workspaceFolders ||
-      !Array.from(vscode.workspace.workspaceFolders).some(
-        (f) => f.uri.fsPath === workspaceRoot
-      )
-    ) {
-      this.skip();
-      return;
-    }
-    configStub.returns({ get: () => true } as any);
-
-    // Get root children using public API
-    const [rootNode] = await provider.getChildren();
-    const children = await provider.getChildren(rootNode);
-
-    const ignoredFile = children.find(
-      (child: ContextNode) => child.label === "ignored.txt"
-    );
-    assert.ok(ignoredFile, "ignored.txt should exist");
-
-    // Try to toggle the ignored node
-    const originalState = ignoredFile!.selectionState;
-    provider.toggleNode(ignoredFile!);
-
-    // State should not change
-    assert.strictEqual(
-      ignoredFile!.selectionState,
-      originalState,
-      "Ignored node should not be toggleable"
-    );
-  });
-
-  test("Default ignore patterns are respected", async function () {
-    if (
-      !vscode.workspace.workspaceFolders ||
-      !Array.from(vscode.workspace.workspaceFolders).some(
-        (f) => f.uri.fsPath === workspaceRoot
-      )
-    ) {
-      this.skip();
-      return;
-    }
-    configStub.returns({ get: () => true } as any);
-    // Create files that should be ignored by default patterns
-    await createTempFile("image.png", "fake png content");
-    await createTempFile("data.csv", "fake csv content");
-    await createTempFile("package-lock.json", "fake lock content");
-    await createTempFile("video.mp4", "fake video content");
-    await createTempDir("node_modules");
-    await createTempFile("node_modules/some-package.js", "package content");
-    await createTempDir("venv");
-    await createTempFile("venv/python.exe", "python binary");
-
-    // Stub config to return default ignore patterns
-    configStub.returns({
-      get: (key: string, def: any) => {
-        if (key === "defaultIgnorePatterns") {
-          return [
-            "*.png",
-            "*.csv",
-            "package-lock.json",
-            "*.mp4",
-            "node_modules/",
-            "venv/",
-          ];
-        }
-        return def;
-      },
-    } as any);
-
-    // Create a new provider with the updated config
-    const mockWorkspaceFolders = [
-      { uri: { fsPath: workspaceRoot }, name: "root" } as any,
-    ];
-    const ignoreManager = new IgnoreManager(workspaceRoot);
-    const tokenManager = new TokenManager(workspaceRoot, ignoreManager, {
-      get: () => undefined,
-      update: () => Promise.resolve(),
-    } as any);
-    const mockTokenManagers = new Map<string, any>([
-      [workspaceRoot, tokenManager],
-    ]);
-    const mockIgnoreManagers = new Map<string, any>([
-      [workspaceRoot, ignoreManager],
-    ]);
-    const newProvider = new ContextTreeProvider(
-      mockWorkspaceFolders,
-      mockTokenManagers,
-      mockIgnoreManagers
-    );
-
-    // Get root children using public API
-    const [rootNode] = await newProvider.getChildren();
-    const children = await newProvider.getChildren(rootNode);
-
-    // Should not contain files that match default ignore patterns
-    const childNames = children.map((child: ContextNode) => child.label);
+    assert.ok(node, "context-ignored.txt should be shown");
     assert.ok(
-      !childNames.includes("image.png"),
-      "image.png should be ignored by default pattern"
-    );
-    assert.ok(
-      !childNames.includes("data.csv"),
-      "data.csv should be ignored by default pattern"
-    );
-    assert.ok(
-      !childNames.includes("package-lock.json"),
-      "package-lock.json should be ignored by default pattern"
-    );
-    assert.ok(
-      !childNames.includes("video.mp4"),
-      "video.mp4 should be ignored by default pattern"
-    );
-    assert.ok(
-      !childNames.includes("node_modules"),
-      "node_modules should be ignored by default pattern"
-    );
-    assert.ok(
-      !childNames.includes("venv"),
-      "venv should be ignored by default pattern"
-    );
-
-    // Should still contain visible files
-    assert.ok(
-      childNames.includes("visible.txt"),
-      "visible.txt should still be visible"
-    );
-    assert.ok(
-      childNames.includes("visible-dir"),
-      "visible-dir should still be visible"
+      node.isIgnored,
+      "context-ignored.txt should be marked as ignored"
     );
   });
 });

@@ -12,8 +12,10 @@ export class IgnoreManager {
   }
 
   private loadRulesSync() {
-    // Add .git to always be ignored
+    // Add default internal ignores that should always be present
     this.ig.add(".git");
+    this.ig.add(".gitignore");
+    this.ig.add(".contextignore");
 
     // Load default ignore patterns from configuration
     const config = vscode.workspace.getConfiguration("copyCatBundler");

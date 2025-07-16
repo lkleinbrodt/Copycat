@@ -255,17 +255,18 @@ export class TokenManager {
   private async updateParentDirectories(filePath: string): Promise<void> {
     const parentDir = path.dirname(filePath);
 
-    // Stop at workspace root
-    if (parentDir === this.workspaceRoot || parentDir === filePath) {
+    // Stop if we are at the root of the filesystem or outside the workspace root.
+    if (parentDir === filePath || !parentDir.startsWith(this.workspaceRoot)) {
       return;
     }
-
     try {
       // Recalculate parent directory tokens
       await this.indexPath(parentDir, true);
 
-      // Continue up the tree
-      await this.updateParentDirectories(parentDir);
+      // Continue up the tree only if we are still inside the workspace
+      if (parentDir !== this.workspaceRoot) {
+        await this.updateParentDirectories(parentDir);
+      }
     } catch (error) {
       console.warn(`Failed to update parent directory ${parentDir}:`, error);
     }
